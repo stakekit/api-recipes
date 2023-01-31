@@ -15,4 +15,8 @@ API_URL='PROVIDED_API_URL'
 
 To test the Sushi Liquid staking on Ethereum you have to make sure you have some [Sushi](https://etherscan.io/address/0x6b3595068778dd592e39a122f4f5a5cf09c90fe2) and sufficient ETH in your wallet to cover gas fees.
 
-Then run `ts-node recipes/evm-staking.ts` 
+Then run `ts-node recipes/evm-staking.ts`
+
+To check your balance
+
+Then run `ts-node recipes/check-balance.ts`
