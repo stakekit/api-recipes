@@ -5,6 +5,7 @@ require("dotenv").config();
 
 const main = async () => {
   const API_URL = process.env.API_URL;
+  const API_KEY = process.env.API_KEY;
 
   const walletConfig = {
     mnemonic: process.env.SEED_PHRASE,
@@ -17,10 +18,11 @@ const main = async () => {
 
   //Specify which yield opportunity and how we want to stake, retrieve the address from our signing wallet instance.
   //Send the stake object to API to construct transactions.
-  const response: any = await fetch(`${API_URL}/chains/enter`, {
+  const response: any = await fetch(`${API_URL}/yields/enter`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "X-API-KEY": API_KEY,
     },
     body: JSON.stringify({
       integrationId: "ethereum-sushi-xsushi-staking",
@@ -38,11 +40,8 @@ const main = async () => {
     }),
   }).then((res) => res.json());
 
-  console.log(response);
-
   //In case there are multiple transactions required in order to perform staking operation. We loop over them.
   for (const { tx, network } of response.txs) {
-    console.log(tx);
     //Sign transaction with our signing wallet instance
     const signed = await wallet.signTransaction(tx);
     //Submit signed transaction to API

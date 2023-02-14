@@ -5,8 +5,7 @@
   "license": "MIT",
   "dependencies": {
     "@steakwallet/signers": "^1.0.94",
-    "dotenv": "^16.0.3",
-    "ethers": "^5.7.2"
+    "dotenv": "^16.0.3"
   },
   "devDependencies": {
     "@types/node-fetch": "^2.6.2",

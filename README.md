@@ -9,6 +9,7 @@ Create a `.env` file in the root folder and add the following environment variab
 ```
 SEED_PHRASE='YOUR_SEED_PHRASE'
 API_URL='PROVIDED_API_URL'
+API_KEY='PROVIDED_API_KEY'
 ```
 
 ## Running the scripts
