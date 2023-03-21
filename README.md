@@ -4,20 +4,22 @@ In this repository you will find a few examples of how use Omni's staking API to
 
 ## Getting started
 
-Create a `.env` file in the root folder and add the following environment variables.
+Create a `.env` file in the root folder and fill it in with the appropriate variables.
 
 ```
-SEED_PHRASE='YOUR_SEED_PHRASE'
-API_URL='PROVIDED_API_URL'
-API_KEY='PROVIDED_API_KEY'
+cp .env.example .env
 ```
 
-## Running the scripts
+## Recipes
 
-To test the Sushi Liquid staking on Ethereum you have to make sure you have some [Sushi](https://etherscan.io/address/0x6b3595068778dd592e39a122f4f5a5cf09c90fe2) and sufficient ETH in your wallet to cover gas fees.
+To test a staking integration, make sure you have enough of the deposit token + and sufficient gas in your wallet to cover gas fees.
 
-Then run `ts-node recipes/evm-staking.ts`
+```
+> ts-node recipes/ethers.ts
+```
 
-To check your balance
+To check an addresses balance for an integration, run the `balance.ts` script:
 
-Then run `ts-node recipes/check-balance.ts`
+```
+> ts-node recipes/balance.ts ethereum-matic-native-staking 0x
+```

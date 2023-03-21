@@ -85,7 +85,6 @@ async function main() {
   const amount = await cli.prompt("How much would you like to stake?");
 
   let gasPriceStep = {};
-  console.log(JSON.stringify(gas, null, 2));
   [...gas.modes.values, { name: "custom" }].forEach((g, i) => {
     if (g.name === "custom") {
       console.log(`(${i}) ${g.name}`);
