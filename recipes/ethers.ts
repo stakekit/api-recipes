@@ -138,7 +138,7 @@ async function main() {
     const result = await get(
       `/transaction/status/${config.token.network}/${lastTx.transactionHash}`
     );
-    if (result.status === "SUCCESS") {
+    if (result.status === "success") {
       console.log(lastTx.link);
       break;
     } else {
