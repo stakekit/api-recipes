@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 import "cross-fetch/polyfill";
 import cli from "cli-ux";
 
-dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 const ENDPOINT = process.env.API_ENDPOINT;
 const INTEGRATION_ID = "ethereum-matic-native-staking";
