@@ -91,7 +91,7 @@ async function main() {
     });
 
     console.log(address);
-    const enter = await post("/v2/stake/enter", {
+    const enter = await post("/v1/stake/enter", {
       integrationId: integrationId,
       addresses: {
         address: address,
@@ -106,6 +106,8 @@ async function main() {
 
     let lastTx = null;
     for (const partialTx of enter.transactions) {
+      const transactionId = partialTx.id;
+
       if (partialTx.status === 'SKIPPED') {
         continue;
       }
@@ -116,15 +118,15 @@ async function main() {
       );
 
       const gas = await get(`/v1/transaction/gas/${config.token.network}`);
-      console.log(gas);
+      console.log(JSON.stringify(gas));
 
-      let gasPriceStep = {};
+      let gasArgs = {};
       const { gasMode }: any = await Enquirer.prompt({
         type: 'select',
         name: 'gasMode',
         message: `Which gas mode would you like to execute with (${gas.modes.denom})?`,
         choices: [...gas.modes.values, { name: "custom" }].map((g) => {
-          return {message: g.name, name: {...g}};
+          return {message: g.name, name: g};
         })
       });
 
@@ -142,33 +144,39 @@ async function main() {
         //   });
         //   opts.gasArgs[name] = input;
         // }
-        // gasPriceStep = opts;
+        // gasArgs = opts;
       } else {
-        gasPriceStep = { gasMode: gasMode.name };
+        gasArgs = gasMode.gasArgs;
       }
 
-      const transaction = await patch(`/v1/transaction/${partialTx.id}`, {
-        gasPriceStep,
+      console.log(JSON.stringify(gasArgs));
+
+      const transaction = await patch(`/v1/transaction/${transactionId}`, {
+        gasArgs,
       });
+      console.log(JSON.stringify(transaction));
 
       const signed = await wallet.signTransaction(
         JSON.parse(transaction.unsignedTransaction)
       );
 
-      const result = await post(`/v1/transaction/${partialTx.id}/submit`, {
+      const result = await post(`/v1/transaction/${transactionId}/submit`, {
         signedTransaction: signed,
       });
+
       lastTx = { network: transaction.network, result: result };
+      console.log(JSON.stringify(lastTx));
 
       while (true) {
         const result = await get(
-          `/v1/transaction/status/${lastTx.network}/${lastTx.result.transactionHash}`
+          `/v1/transaction/${transactionId}/status`
         );
+
         console.log(result.status);
-        if (result.status === "success") {
-          console.log(lastTx.link);
+        if (result.status === "CONFIRMED") {
+          console.log(result.url);
           break;
-        } else if(result.status === "failed") {
+        } else if(result.status === "FAILED") {
           console.log('TRANSACTION FAILED');
           break;
         } else {
