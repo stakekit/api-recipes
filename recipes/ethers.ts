@@ -2,7 +2,7 @@ import * as dotenv from "dotenv";
 import { Wallet } from "ethers";
 
 import "cross-fetch/polyfill";
-import Enquirer from 'enquirer';
+import Enquirer from "enquirer";
 
 dotenv.config();
 
@@ -45,10 +45,10 @@ async function main() {
   const integrations = await get(`/v1/stake/opportunities`);
 
   const { integrationId }: any = await Enquirer.prompt({
-    type: 'select',
-    name: 'integrationId',
-    message: 'Choose the integration ID you would like to test: ',
-    choices: integrations.map((integration: { id: any; }) => integration.id)
+    type: "select",
+    name: "integrationId",
+    message: "Choose the integration ID you would like to test: ",
+    choices: integrations.map((integration: { id: any }) => integration.id),
   });
 
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
@@ -73,7 +73,7 @@ async function main() {
   ]);
 
   const stakedBalance = await post(`/v1/stake/balances/${integrationId}`, {
-    address,
+    addresses: { address },
   });
 
   console.log("=== Balances ===");
@@ -84,9 +84,9 @@ async function main() {
   console.log("=== Balances end ===");
 
   const { amount }: any = await Enquirer.prompt({
-    type: 'input',
-    name: 'amount',
-    message: 'How much would you like to stake?'
+    type: "input",
+    name: "amount",
+    message: "How much would you like to stake?",
   });
 
   console.log(address);
@@ -107,7 +107,7 @@ async function main() {
   for (const partialTx of enter.transactions) {
     const transactionId = partialTx.id;
 
-    if (partialTx.status === 'SKIPPED') {
+    if (partialTx.status === "SKIPPED") {
       continue;
     }
     console.log(
@@ -121,16 +121,16 @@ async function main() {
 
     let gasArgs = {};
     const { gasMode }: any = await Enquirer.prompt({
-      type: 'select',
-      name: 'gasMode',
+      type: "select",
+      name: "gasMode",
       message: `Which gas mode would you like to execute with (${gas.modes.denom})?`,
       choices: [...gas.modes.values, { name: "custom" }].map((g) => {
-        return {message: g.name, name: g};
-      })
+        return { message: g.name, name: g };
+      }),
     });
 
     if (gasMode.name === "custom") {
-      console.log('Custom gas mode not supported for now.');
+      console.log("Custom gas mode not supported for now.");
       throw null;
       // const opts = { gasMode: gasMode.name, gasArgs: {} };
       // for (let i = 0; i < gas.suggestedValues.length; i++) {
@@ -167,16 +167,14 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(
-        `/v1/transaction/${transactionId}/status`
-      );
+      const result = await get(`/v1/transaction/${transactionId}/status`);
 
       console.log(result.status);
       if (result.status === "CONFIRMED") {
         console.log(result.url);
         break;
-      } else if(result.status === "FAILED") {
-        console.log('TRANSACTION FAILED');
+      } else if (result.status === "FAILED") {
+        console.log("TRANSACTION FAILED");
         break;
       } else {
         console.log("Pending...");
@@ -190,9 +188,9 @@ try {
   main();
 } catch (error) {
   if (error) {
-    console.log('Script failed');
+    console.log("Script failed");
     console.log(error);
   } else {
-    console.log('Script was aborted.')
+    console.log("Script was aborted.");
   }
 }
