@@ -43,17 +43,17 @@ async function main() {
   console.log(`Token: ${config.token.symbol} on ${config.token.network}`);
   console.log("=== Configuration end === ");
 
-  // const [balance] = await Promise.all([
-  //   post(`/v1/token/balances`, {
-  //     addresses: [
-  //       {
-  //         network: config.token.network,
-  //         address,
-  //         tokenAddress: config.token.address,
-  //       },
-  //     ],
-  //   }),
-  // ]);
+  const [balance] = await Promise.all([
+    post(`/v1/token/balances`, {
+      addresses: [
+        {
+          network: config.token.network,
+          address,
+          tokenAddress: config.token.address,
+        },
+      ],
+    }),
+  ]);
 
   const stakedBalance = await post(`/v1/stake/balances/${integrationId}`, {
     addresses: { address, additionalAddresses },
@@ -62,7 +62,7 @@ async function main() {
 
   console.log("=== Balances ===");
 
-  // console.log("Available", config.token.symbol, balance[0].amount);
+  console.log("Available", config.token.symbol, balance[0].amount);
   console.log("Staked", stakedBalance);
 
   console.log("=== Balances end ===");
