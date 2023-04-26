@@ -1,6 +1,5 @@
 import * as dotenv from "dotenv";
-import { Wallet } from "ethers";
-
+import { ImportableWallets, getSigningWallet } from "@stakekit/signers";
 import "cross-fetch/polyfill";
 import Enquirer from "enquirer";
 import { get, patch, post } from "../utils/requests";
@@ -9,9 +8,7 @@ dotenv.config();
 
 async function main() {
   let additionalAddresses = {};
-  const wallet = Wallet.fromPhrase(process.env.MNEMONIC);
-  const address = await wallet.getAddress();
-
+  let validatorAddress;
   const integrations = await get(`/v1/stake/opportunities`);
 
   const { integrationId }: any = await Enquirer.prompt({
@@ -23,32 +20,49 @@ async function main() {
 
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
 
-  console.log(config);
+  const walletoptions = {
+    mnemonic: process.env.MNEMONIC,
+    walletType: ImportableWallets.Omni,
+    index: 0,
+  };
+
+  const wallet = await getSigningWallet(config.token.network, walletoptions);
+  const address = await wallet.getAddress();
+
+  if (config.args.enter.addresses.additionalAddresses) {
+    additionalAddresses = await wallet.getAdditionalAddresses();
+  }
+
+  if (config.args.enter.args.validatorAddress) {
+    validatorAddress = config.config.defaultValidator;
+  }
+
   console.log("=== Configuration === ");
   console.log("ID:", config.id);
   console.log(`APY: ${((config.apy || 1) * 100).toFixed(2)}%`);
   console.log(`Token: ${config.token.symbol} on ${config.token.network}`);
   console.log("=== Configuration end === ");
 
-  const [balance] = await Promise.all([
-    post(`/v1/token/balances`, {
-      addresses: [
-        {
-          network: config.token.network,
-          address,
-          tokenAddress: config.token.address,
-        },
-      ],
-    }),
-  ]);
+  // const [balance] = await Promise.all([
+  //   post(`/v1/token/balances`, {
+  //     addresses: [
+  //       {
+  //         network: config.token.network,
+  //         address,
+  //         tokenAddress: config.token.address,
+  //       },
+  //     ],
+  //   }),
+  // ]);
 
   const stakedBalance = await post(`/v1/stake/balances/${integrationId}`, {
-    addresses: { address },
+    addresses: { address, additionalAddresses },
+    args: { validatorAddresses: [validatorAddress] },
   });
 
   console.log("=== Balances ===");
 
-  console.log("Available", config.token.symbol, balance[0].amount);
+  // console.log("Available", config.token.symbol, balance[0].amount);
   console.log("Staked", stakedBalance);
 
   console.log("=== Balances end ===");
@@ -126,7 +140,7 @@ async function main() {
     console.log(JSON.stringify(transaction));
 
     const signed = await wallet.signTransaction(
-      JSON.parse(transaction.unsignedTransaction)
+      transaction.unsignedTransaction
     );
 
     const result = await post(`/v1/transaction/${transactionId}/submit`, {
