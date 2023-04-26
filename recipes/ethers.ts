@@ -96,7 +96,7 @@ async function main() {
       address: address,
       additionalAddresses: additionalAddresses,
     },
-    arguments: {
+    args: {
       amount: amount,
     },
   });
