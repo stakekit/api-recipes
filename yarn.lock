@@ -2861,6 +2861,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@stakekit/api-recipes@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@stakekit/api-recipes@workspace:."
+  dependencies:
+    "@stakekit/signers": ^0.0.41
+    "@types/node-fetch": ^2.6.2
+    cross-fetch: ^3.1.5
+    dotenv: ^16.0.3
+    enquirer: ^2.3.6
+    ethers: ^6.2.0
+    ts-node: ^10.9.1
+    typescript: ^4.9.5
+  languageName: unknown
+  linkType: soft
+
 "@stakekit/common@npm:^0.0.8":
   version: 0.0.8
   resolution: "@stakekit/common@npm:0.0.8"
@@ -11489,21 +11504,6 @@ __metadata:
   checksum: 052bf4d25bbf5f78e06c1d5e67de2e088b06871fa04107ca8d3f0e9d9263326e2942c8bedee3545795fc77d787d443a538345eef74db2f8e35db3558c6f91ff7
   languageName: node
   linkType: hard
-
-"staking@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "staking@workspace:."
-  dependencies:
-    "@stakekit/signers": ^0.0.41
-    "@types/node-fetch": ^2.6.2
-    cross-fetch: ^3.1.5
-    dotenv: ^16.0.3
-    enquirer: ^2.3.6
-    ethers: ^6.2.0
-    ts-node: ^10.9.1
-    typescript: ^4.9.5
-  languageName: unknown
-  linkType: soft
 
 "static-extend@npm:^0.1.1":
   version: 0.1.2

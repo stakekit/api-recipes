@@ -73,17 +73,26 @@ async function main() {
     message: "How much would you like to stake?",
   });
 
+  const enterArgs = {
+    amount: amount,
+  };
+
+  if (config.args.enter.args!.validatorAddress) {
+    Object.assign(enterArgs, {
+      validatorAddress: validatorAddress,
+    });
+  }
+
   const enter = await post("/v1/stake/enter", {
     integrationId: integrationId,
     addresses: {
       address: address,
       additionalAddresses: additionalAddresses,
     },
-    args: {
-      amount: amount,
-    },
+    args: enterArgs,
   });
 
+  console.log(enter)
   let lastTx = null;
   for (const partialTx of enter.transactions) {
     const transactionId = partialTx.id;
