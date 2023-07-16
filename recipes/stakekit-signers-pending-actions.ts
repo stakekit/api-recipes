@@ -21,13 +21,13 @@ async function main() {
 
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
 
-  const walletoptions = {
+  const walletOptions = {
     mnemonic: process.env.MNEMONIC,
     walletType: ImportableWallets.MetaMask,
     index: 0,
   };
 
-  const wallet = await getSigningWallet(config.token.network, walletoptions);
+  const wallet = await getSigningWallet(config.token.network, walletOptions);
   const address = await wallet.getAddress();
 
   if (config.args.enter.addresses.additionalAddresses) {
@@ -78,11 +78,18 @@ async function main() {
   });
 
   const request = JSON.parse(choice);
+
+  console.log(request)
   const pendingActionSession = await post("/v1/stake/pending_action", {
     integrationId: integrationId,
-    ...request,
-    args: {}
+    type: request.type,
+    passthrough: request.passthrough,
+    args: request.args?.args?.validatorAddress ? {
+      validatorAddress:   config.config.defaultValidator!
+    } : {},
   });
+
+  console.log(pendingActionSession)
 
 
   let lastTx = null;
@@ -122,7 +129,13 @@ async function main() {
       gasArgs,
     });
 
-    const signed = await wallet.signTransaction(
+
+    const signingWallet = await getSigningWallet(
+      transaction.network,
+      walletOptions
+    );
+
+    const signed = await signingWallet.signTransaction(
       transaction.unsignedTransaction
     );
 
