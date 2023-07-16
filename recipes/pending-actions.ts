@@ -8,15 +8,22 @@ dotenv.config();
 
 async function main() {
   let additionalAddresses = {};
-  let validatorAddress;
+  let validatorAddress: string;
 
-  const integrationId = "ethereum-matic-native-staking";
+  const integrations = await get(`/v1/stake/opportunities`);
+
+  const { integrationId }: any = await Enquirer.prompt({
+    type: "autocomplete",
+    name: "integrationId",
+    message: "Choose the integration ID you would like to test: ",
+    choices: integrations.map((integration: { id: string }) => integration.id),
+  });
 
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
 
   const walletoptions = {
     mnemonic: process.env.MNEMONIC,
-    walletType: ImportableWallets.Steakwallet,
+    walletType: ImportableWallets.MetaMask,
     index: 0,
   };
 
@@ -40,32 +47,43 @@ async function main() {
 
   console.log(stakedBalances);
 
-  const { pendingAction }: any = await Enquirer.prompt({
+  const pendingActionChoices = stakedBalances
+    .map((balance) => {
+      return balance.pendingActions.map((action) => {
+        return {
+          name: `${action.type} - Balance: ${balance.amount} (${balance.type})`,
+          value: JSON.stringify(action),
+        };
+      });
+    })
+    .flat();
+
+  if (pendingActionChoices.length === 0) {
+    console.error(
+      `No pending actions available on that integration ${integrationId}.`
+    );
+    return;
+  }
+
+
+  const { choice }: any = await Enquirer.prompt({
     type: "select",
-    name: "pendingAction",
+    name: "choice",
     message: `Which pending action would you like to execute?`,
-    choices: stakedBalances
-      .map((balance) => {
-        return balance.pendingActions.map((action) => {
-          return JSON.stringify({
-            type: balance.type,
-            balance: balance.amount,
-            action: action,
-          });
-        });
-      })
-      .flat(),
+    choices: pendingActionChoices,
+    result(name) {
+      return pendingActionChoices.find((choice) => choice.name === name)!
+        .value;
+    },
   });
 
-  const request = JSON.parse(pendingAction).action;
-
-  console.log(request.passthrough);
+  const request = JSON.parse(choice);
   const pendingActionSession = await post("/v1/stake/pending_action", {
     integrationId: integrationId,
     ...request,
+    args: {}
   });
 
-  console.log(pendingActionSession);
 
   let lastTx = null;
   for (const partialTx of pendingActionSession.transactions) {
@@ -75,49 +93,34 @@ async function main() {
       continue;
     }
     console.log(
-      `Action ${++partialTx.stepIndex} out of ${
-        pendingActionSession.transactions.length
+      `Action ${++partialTx.stepIndex} out of ${pendingActionSession.transactions.length
       } ${partialTx.type}`
     );
 
-    const gas = await get(`/v1/transaction/gas/${config.token.network}`);
-    console.log(JSON.stringify(gas));
+    const gas = await get(`/v1/transaction/gas/${config.token.network}`)
 
     let gasArgs = {};
-    const { gasMode }: any = await Enquirer.prompt({
-      type: "select",
-      name: "gasMode",
-      message: `Which gas mode would you like to execute with (${gas.modes.denom})?`,
-      choices: [...gas.modes.values, { name: "custom" }].map((g) => {
-        return { message: g.name, name: g };
-      }),
-    });
+    if (gas.code !== 404) {
+      const { gasMode }: any = await Enquirer.prompt({
+        type: "select",
+        name: "gasMode",
+        message: `Which gas mode would you like to execute with (${gas.modes.denom})?`,
+        choices: [...gas.modes.values, { name: "custom" }].map((g) => {
+          return { message: g.name, name: g };
+        }),
+      });
 
-    if (gasMode.name === "custom") {
-      console.log("Custom gas mode not supported for now.");
-      throw null;
-      // const opts = { gasMode: gasMode.name, gasArgs: {} };
-      // for (let i = 0; i < gas.suggestedValues.length; i++) {
-      //   const { name, recommendValue, units } = gas.suggestedValues[i];
-      //   const { input }: any = await Enquirer.prompt({
-      //     type: 'input',
-      //     name: 'input',
-      //     message: `Input ${name} (${units})`,
-      //     initial: recommendValue,
-      //   });
-      //   opts.gasArgs[name] = input;
-      // }
-      // gasArgs = opts;
-    } else {
-      gasArgs = gasMode.gasArgs;
+      if (gasMode.name === "custom") {
+        console.log("Custom gas mode not supported for now.");
+        throw null;
+      } else {
+        gasArgs = gasMode.gasArgs;
+      }
     }
-
-    console.log(JSON.stringify(gasArgs));
 
     const transaction = await patch(`/v1/transaction/${transactionId}`, {
       gasArgs,
     });
-    console.log(JSON.stringify(transaction));
 
     const signed = await wallet.signTransaction(
       transaction.unsignedTransaction
@@ -133,7 +136,6 @@ async function main() {
     while (true) {
       const result = await get(`/v1/transaction/${transactionId}/status`);
 
-      console.log(result.status);
       if (result.status === "CONFIRMED") {
         console.log(result.url);
         break;

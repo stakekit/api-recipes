@@ -15,10 +15,10 @@ async function main() {
   const integrations = await get(`/v1/stake/opportunities`);
 
   const { integrationId }: any = await Enquirer.prompt({
-    type: "select",
+    type: "autocomplete",
     name: "integrationId",
     message: "Choose the integration ID you would like to test: ",
-    choices: integrations.map((integration: { id: any }) => integration.id),
+    choices: integrations.map((integration: { id: string }) => integration.id),
   });
 
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
@@ -59,7 +59,6 @@ async function main() {
     message: "How much would you like to stake?",
   });
 
-  console.log(address);
   const enter = await post("/v1/stake/enter", {
     integrationId: integrationId,
     addresses: {
@@ -71,7 +70,6 @@ async function main() {
     },
   });
 
-  console.log(enter);
 
   let lastTx = null;
   for (const partialTx of enter.transactions) {
@@ -81,8 +79,7 @@ async function main() {
       continue;
     }
     console.log(
-      `Action ${++partialTx.stepIndex} out of ${enter.transactions.length} ${
-        partialTx.type
+      `Action ${++partialTx.stepIndex} out of ${enter.transactions.length} ${partialTx.type
       }`
     );
 
@@ -102,18 +99,6 @@ async function main() {
     if (gasMode.name === "custom") {
       console.log("Custom gas mode not supported for now.");
       throw null;
-      // const opts = { gasMode: gasMode.name, gasArgs: {} };
-      // for (let i = 0; i < gas.suggestedValues.length; i++) {
-      //   const { name, recommendValue, units } = gas.suggestedValues[i];
-      //   const { input }: any = await Enquirer.prompt({
-      //     type: 'input',
-      //     name: 'input',
-      //     message: `Input ${name} (${units})`,
-      //     initial: recommendValue,
-      //   });
-      //   opts.gasArgs[name] = input;
-      // }
-      // gasArgs = opts;
     } else {
       gasArgs = gasMode.gasArgs;
     }
