@@ -18,6 +18,14 @@ async function main() {
     choices: integrations.map((integration: { id: string }) => integration.id),
   });
 
+
+  const { action }: any = await Enquirer.prompt({
+    type: "select",
+    name: "action",
+    message: "What ation would you like to perform?",
+    choices: ['enter', 'exit'],
+  });
+
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
 
   const walletOptions = {
@@ -29,11 +37,12 @@ async function main() {
   const wallet = await getSigningWallet(config.token.network, walletOptions);
   const address = await wallet.getAddress();
 
-  if (config.args.enter.addresses.additionalAddresses) {
+
+  if (config.args[action].addresses.additionalAddresses) {
     additionalAddresses = await wallet.getAdditionalAddresses();
   }
 
-  if (config.args.enter.args.validatorAddress) {
+  if (config.args[action].args.validatorAddress) {
     validatorAddress = config.config.defaultValidator;
   }
 
@@ -70,20 +79,20 @@ async function main() {
   const { amount }: any = await Enquirer.prompt({
     type: "input",
     name: "amount",
-    message: "How much would you like to stake?",
+    message: `How much would you like to ${action === 'enter' ? 'stake': 'unstake'}`,
   });
 
   const enterArgs = {
     amount: amount,
   };
 
-  if (config.args.enter.args!.validatorAddress) {
+  if (config.args[action].args!.validatorAddress) {
     Object.assign(enterArgs, {
       validatorAddress: validatorAddress,
     });
   }
 
-  const enter = await post("/v1/stake/enter", {
+  const session = await post(`/v1/stake/${action}`, {
     integrationId: integrationId,
     addresses: {
       address: address,
@@ -92,16 +101,15 @@ async function main() {
     args: enterArgs,
   });
 
-  console.log(enter)
   let lastTx = null;
-  for (const partialTx of enter.transactions) {
+  for (const partialTx of session.transactions) {
     const transactionId = partialTx.id;
 
     if (partialTx.status === "SKIPPED") {
       continue;
     }
     console.log(
-      `Action ${++partialTx.stepIndex} out of ${enter.transactions.length} ${partialTx.type
+      `Action ${++partialTx.stepIndex} out of ${session.transactions.length} ${partialTx.type
       }`
     );
 
