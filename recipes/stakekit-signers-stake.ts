@@ -38,11 +38,11 @@ async function main() {
   const address = await wallet.getAddress();
 
 
-  if (config.args[action].addresses.additionalAddresses) {
+  if (config.args[action]?.addresses.additionalAddresses) {
     additionalAddresses = await wallet.getAdditionalAddresses();
   }
 
-  if (config.args[action].args.validatorAddress) {
+  if (config.args[action]?.args.validatorAddress) {
     validatorAddress = config.config.defaultValidator;
   }
 
@@ -86,7 +86,7 @@ async function main() {
     amount: amount,
   };
 
-  if (config.args[action].args!.validatorAddress) {
+  if (config.args[action]?.args!.validatorAddress) {
     Object.assign(args, {
       validatorAddress: validatorAddress,
     });
@@ -191,7 +191,7 @@ async function main() {
         break;
       } else {
         console.log("Pending...");
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
   }
