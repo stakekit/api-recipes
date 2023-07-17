@@ -82,12 +82,12 @@ async function main() {
     message: `How much would you like to ${action === 'enter' ? 'stake': 'unstake'}`,
   });
 
-  const enterArgs = {
+  const args = {
     amount: amount,
   };
 
   if (config.args[action].args!.validatorAddress) {
-    Object.assign(enterArgs, {
+    Object.assign(args, {
       validatorAddress: validatorAddress,
     });
   }
@@ -98,7 +98,7 @@ async function main() {
       address: address,
       additionalAddresses: additionalAddresses,
     },
-    args: enterArgs,
+    args,
   });
 
   let lastTx = null;
@@ -117,7 +117,6 @@ async function main() {
 
     let gasArgs = {};
     if (gas.code !== 404) {
-      const gas = await get(`/v1/transaction/gas/${config.token.network}`);
       console.log(JSON.stringify(gas));
 
       const { gasMode }: any = await Enquirer.prompt({
@@ -137,9 +136,7 @@ async function main() {
       }
     }
 
-    const unsignedTransaction = await patch(`/v1/transaction/${transactionId}`, {
-      gasArgs,
-    });
+    const unsignedTransaction = await patch(`/v1/transaction/${transactionId}`, gasArgs);
     console.log(JSON.stringify(unsignedTransaction));
 
     
@@ -171,7 +168,7 @@ async function main() {
         break;
       } else {
         console.log("Pending...");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
   }

@@ -30,6 +30,7 @@ async function main() {
   const wallet = await getSigningWallet(config.token.network, walletOptions);
   const address = await wallet.getAddress();
 
+  console.log(address)
   if (config.args.enter.addresses.additionalAddresses) {
     additionalAddresses = await wallet.getAdditionalAddresses();
   }
@@ -85,12 +86,11 @@ async function main() {
     type: request.type,
     passthrough: request.passthrough,
     args: request.args?.args?.validatorAddress ? {
-      validatorAddress:   config.config.defaultValidator!
+      validatorAddress: config.config.defaultValidator!
     } : {},
   });
 
   console.log(pendingActionSession)
-
 
   let lastTx = null;
   for (const partialTx of pendingActionSession.transactions) {
@@ -125,9 +125,9 @@ async function main() {
       }
     }
 
-    const transaction = await patch(`/v1/transaction/${transactionId}`, {
-      gasArgs,
-    });
+    const transaction = await patch(`/v1/transaction/${transactionId}`
+      , gasArgs
+    );
 
 
     const signingWallet = await getSigningWallet(
@@ -157,7 +157,7 @@ async function main() {
         break;
       } else {
         console.log("Pending...");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
   }
