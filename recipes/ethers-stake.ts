@@ -1,5 +1,6 @@
 import * as dotenv from "dotenv";
-import { ImportableWallets, getSigningWallet } from "@stakekit/signers";
+import { Wallet } from "ethers";
+
 import "cross-fetch/polyfill";
 import Enquirer from "enquirer";
 import { get, patch, post } from "../utils/requests";
@@ -8,35 +9,21 @@ dotenv.config();
 
 async function main() {
   let additionalAddresses = {};
-  let validatorAddress;
+  const wallet = Wallet.fromPhrase(process.env.MNEMONIC);
+  const address = await wallet.getAddress();
+
   const integrations = await get(`/v1/stake/opportunities`);
 
   const { integrationId }: any = await Enquirer.prompt({
-    type: "select",
+    type: "autocomplete",
     name: "integrationId",
     message: "Choose the integration ID you would like to test: ",
-    choices: integrations.map((integration: { id: any }) => integration.id),
+    choices: integrations.map((integration: { id: string }) => integration.id),
   });
 
   const config = await get(`/v1/stake/opportunities/${integrationId}`);
 
-  const walletoptions = {
-    mnemonic: process.env.MNEMONIC,
-    walletType: ImportableWallets.Omni,
-    index: 0,
-  };
-
-  const wallet = await getSigningWallet(config.token.network, walletoptions);
-  const address = await wallet.getAddress();
-
-  if (config.args.enter.addresses.additionalAddresses) {
-    additionalAddresses = await wallet.getAdditionalAddresses();
-  }
-
-  if (config.args.enter.args.validatorAddress) {
-    validatorAddress = config.config.defaultValidator;
-  }
-
+  console.log(config);
   console.log("=== Configuration === ");
   console.log("ID:", config.id);
   console.log(`APY: ${((config.apy || 1) * 100).toFixed(2)}%`);
@@ -56,8 +43,7 @@ async function main() {
   ]);
 
   const stakedBalance = await post(`/v1/stake/balances/${integrationId}`, {
-    addresses: { address, additionalAddresses },
-    args: { validatorAddresses: [validatorAddress] },
+    addresses: { address },
   });
 
   console.log("=== Balances ===");
@@ -73,7 +59,6 @@ async function main() {
     message: "How much would you like to stake?",
   });
 
-  console.log(address);
   const enter = await post("/v1/stake/enter", {
     integrationId: integrationId,
     addresses: {
@@ -85,7 +70,6 @@ async function main() {
     },
   });
 
-  console.log(enter);
 
   let lastTx = null;
   for (const partialTx of enter.transactions) {
@@ -95,8 +79,7 @@ async function main() {
       continue;
     }
     console.log(
-      `Action ${++partialTx.stepIndex} out of ${enter.transactions.length} ${
-        partialTx.type
+      `Action ${++partialTx.stepIndex} out of ${enter.transactions.length} ${partialTx.type
       }`
     );
 
@@ -116,18 +99,6 @@ async function main() {
     if (gasMode.name === "custom") {
       console.log("Custom gas mode not supported for now.");
       throw null;
-      // const opts = { gasMode: gasMode.name, gasArgs: {} };
-      // for (let i = 0; i < gas.suggestedValues.length; i++) {
-      //   const { name, recommendValue, units } = gas.suggestedValues[i];
-      //   const { input }: any = await Enquirer.prompt({
-      //     type: 'input',
-      //     name: 'input',
-      //     message: `Input ${name} (${units})`,
-      //     initial: recommendValue,
-      //   });
-      //   opts.gasArgs[name] = input;
-      // }
-      // gasArgs = opts;
     } else {
       gasArgs = gasMode.gasArgs;
     }
@@ -140,7 +111,7 @@ async function main() {
     console.log(JSON.stringify(transaction));
 
     const signed = await wallet.signTransaction(
-      transaction.unsignedTransaction
+      JSON.parse(transaction.unsignedTransaction)
     );
 
     const result = await post(`/v1/transaction/${transactionId}/submit`, {

@@ -1,10 +1,10 @@
 {
-  "name": "staking",
+  "name": "@stakekit/api-recipes",
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
   "dependencies": {
-    "@stakekit/signers": "^0.0.3",
+    "@stakekit/signers": "^0.0.41",
     "cross-fetch": "^3.1.5",
     "dotenv": "^16.0.3",
     "enquirer": "^2.3.6",
