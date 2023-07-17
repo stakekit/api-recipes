@@ -108,6 +108,29 @@ async function main() {
     if (partialTx.status === "SKIPPED") {
       continue;
     }
+
+    while (true) {
+      if (lastTx !== null && lastTx.network !== partialTx.network) {
+        const stakedBalances = await post(`/v1/stake/balances/${integrationId}`, {
+          addresses: { address, additionalAddresses },
+          args: { validatorAddresses: [validatorAddress] },
+        });
+
+     const locked = stakedBalances.find((balance) => balance.type === 'locked')
+
+        if(locked.amount >= session.amount) {
+          console.log('Locked amount available')
+          break
+        } else {
+          console.log("Waiting for funds to arrive...");
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      } else {
+        console.log('breaking')
+        break;
+      }
+    }
+
     console.log(
       `Action ${++partialTx.stepIndex} out of ${session.transactions.length} ${partialTx.type
       }`

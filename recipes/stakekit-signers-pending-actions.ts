@@ -94,6 +94,8 @@ async function main() {
 
   let lastTx = null;
   for (const partialTx of pendingActionSession.transactions) {
+
+
     const transactionId = partialTx.id;
 
     if (partialTx.status === "SKIPPED") {
