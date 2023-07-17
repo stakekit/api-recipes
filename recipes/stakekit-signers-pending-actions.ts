@@ -125,9 +125,7 @@ async function main() {
       }
     }
 
-    const transaction = await patch(`/v1/transaction/${transactionId}`
-      , gasArgs
-    );
+    const transaction = await patch(`/v1/transaction/${transactionId}`, gasArgs);
 
 
     const signingWallet = await getSigningWallet(
