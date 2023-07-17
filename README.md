@@ -1,6 +1,6 @@
-# OMNI API Recipes
+# StakeKit API Recipes
 
-In this repository you will find a few examples of how use Omni's staking API to build various staking flows.
+In this repository, you will find a few examples of how to use StakeKit's staking API to build various staking flows.
 
 ## Getting started
 
@@ -12,7 +12,7 @@ cp .env.example .env
 
 ## Recipes
 
-To test a staking integration, make sure you have enough of the deposit token + and sufficient gas in your wallet to cover gas fees.
+To test a staking integration, make sure you have enough funds of the deposit token + and sufficient gas in your wallet to cover gas fees.
 
 ```
 > ts-node recipes/ethers.ts
