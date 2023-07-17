@@ -122,7 +122,7 @@ async function main() {
           console.log('Locked amount available')
           break
         } else {
-          console.log("Waiting for funds to arrive...");
+          console.log("Waiting for funds to arrive in destination chain...");
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       } else {
