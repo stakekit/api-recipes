@@ -9,21 +9,20 @@ dotenv.config();
 
 async function main() {
   let additionalAddresses = {};
-  const wallet = Wallet.fromPhrase(process.env.MNEMONIC);
-  const address = await wallet.getAddress();
 
-  const integrations = await get(`/v1/stake/opportunities`);
-
+  const {data} = await get(`/v1/yields/enabled`);
+  
   const { integrationId }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "integrationId",
     message: "Choose the integration ID you would like to test: ",
-    choices: integrations.map((integration: { id: string }) => integration.id),
+    choices: data.map((integration: { id: string }) => integration.id),
   });
+  const config = await get(`/v1/yields/${integrationId}`);
 
-  const config = await get(`/v1/stake/opportunities/${integrationId}`);
+  const wallet = Wallet.fromPhrase(process.env.MNEMONIC);
+  const address = await wallet.getAddress();
 
-  console.log(config);
   console.log("=== Configuration === ");
   console.log("ID:", config.id);
   console.log(`APY: ${((config.apy || 1) * 100).toFixed(2)}%`);
@@ -31,7 +30,7 @@ async function main() {
   console.log("=== Configuration end === ");
 
   const [balance] = await Promise.all([
-    post(`/v1/token/balances`, {
+    post(`/v1/tokens/balances`, {
       addresses: [
         {
           network: config.token.network,
@@ -41,9 +40,9 @@ async function main() {
       ],
     }),
   ]);
-
-  const stakedBalance = await post(`/v1/stake/balances/${integrationId}`, {
-    addresses: { address },
+  
+  const stakedBalance = await post(`/v1/yields/${integrationId}/balances`, {
+    addresses: { address }
   });
 
   console.log("=== Balances ===");
@@ -53,13 +52,21 @@ async function main() {
 
   console.log("=== Balances end ===");
 
+  const { action }: any = await Enquirer.prompt({
+    type: "select",
+    name: "action",
+    message: "What ation would you like to perform?",
+    choices: ['enter', 'exit'],
+  });
+
   const { amount }: any = await Enquirer.prompt({
     type: "input",
     name: "amount",
-    message: "How much would you like to stake?",
+    message: `How much would you like to ${action === 'enter' ? 'stake': 'unstake'}`,
   });
+  
 
-  const enter = await post("/v1/stake/enter", {
+  const session = await post(`/v1/actions/${action}`, {
     integrationId: integrationId,
     addresses: {
       address: address,
@@ -67,23 +74,22 @@ async function main() {
     },
     args: {
       amount: amount,
-    },
-  });
-
+    }
+   });
 
   let lastTx = null;
-  for (const partialTx of enter.transactions) {
+  for (const partialTx of session.transactions) {
     const transactionId = partialTx.id;
 
     if (partialTx.status === "SKIPPED") {
       continue;
     }
     console.log(
-      `Action ${++partialTx.stepIndex} out of ${enter.transactions.length} ${partialTx.type
+      `Action ${++partialTx.stepIndex} out of ${session.transactions.length} ${partialTx.type
       }`
     );
 
-    const gas = await get(`/v1/transaction/gas/${config.token.network}`);
+    const gas = await get(`/v1/transactions/gas/${config.token.network}`);
     console.log(JSON.stringify(gas));
 
     let gasArgs = {};
@@ -105,7 +111,7 @@ async function main() {
 
     console.log(JSON.stringify(gasArgs));
 
-    const transaction = await patch(`/v1/transaction/${transactionId}`, {
+    const transaction = await patch(`/v1/transactions/${transactionId}`, {
       gasArgs,
     });
     console.log(JSON.stringify(transaction));
@@ -114,7 +120,7 @@ async function main() {
       JSON.parse(transaction.unsignedTransaction)
     );
 
-    const result = await post(`/v1/transaction/${transactionId}/submit`, {
+    const result = await post(`/v1/transactions/${transactionId}/submit`, {
       signedTransaction: signed,
     });
 
@@ -122,7 +128,7 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transaction/${transactionId}/status`);
+      const result = await get(`/v1/transactions/${transactionId}/status`);
 
       console.log(result.status);
       if (result.status === "CONFIRMED") {

@@ -8,7 +8,6 @@ dotenv.config();
 
 async function main() {
   let additionalAddresses = {};
-  let validatorAddress: string;
 
   const {data} = await get(`/v1/yields/enabled`);
   
@@ -18,7 +17,6 @@ async function main() {
     message: "Choose the integration ID you would like to test: ",
     choices: data.map((integration: { id: string }) => integration.id),
   });
-
 
   const config = await get(`/v1/yields/${integrationId}`);
 

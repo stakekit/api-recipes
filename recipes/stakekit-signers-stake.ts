@@ -8,7 +8,6 @@ dotenv.config();
 
 async function main() {
   let additionalAddresses = {};
-  let validatorAddress: string;
 
   const {data} = await get(`/v1/yields/enabled`);
   
@@ -62,8 +61,7 @@ async function main() {
   ]);
 
   const stakedBalance = await post(`/v1/yields/${integrationId}/balances`, {
-    addresses: { address, additionalAddresses },
-    args: { validatorAddresses: [validatorAddress] },
+    addresses: { address, additionalAddresses }
   });
 
   console.log("=== Balances ===");
@@ -79,7 +77,7 @@ async function main() {
     message: `How much would you like to ${action === 'enter' ? 'stake': 'unstake'}`,
   });
 
-  const args = {
+  const args: {amount: string, validatorAddress?: string, validatorAddresses?: string[]} = {
     amount: amount,
   };
 
@@ -140,7 +138,7 @@ async function main() {
       if (lastTx !== null && lastTx.network !== partialTx.network) {
         const stakedBalances = await post(`/v1/yields/${integrationId}/balances`, {
           addresses: { address, additionalAddresses },
-          args: { validatorAddresses: [validatorAddress] },
+          args: { validatorAddresses: [args.validatorAddress] },
         });
 
      const locked = stakedBalances.find((balance) => balance.type === 'locked')
