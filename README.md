@@ -14,12 +14,14 @@ cp .env.example .env
 
 To test a staking integration, make sure you have enough funds of the deposit token + and sufficient gas in your wallet to cover gas fees.
 
-```
-> ts-node recipes/ethers.ts
-```
-
-To check an addresses balance for an integration, run the `balance.ts` script:
+With ethers
 
 ```
-> ts-node recipes/balance.ts ethereum-matic-native-staking 0x
+> yarn ts-node recipes/ethers-stake.ts
+```
+
+With @stakekit/signers
+
+```
+> yarn ts-node recipes/stakekit-signers-stake.ts
 ```
