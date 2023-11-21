@@ -13,7 +13,15 @@ export const post = async (path: string, data: object) => {
       "X-API-KEY": process.env.API_KEY,
     },
     body: JSON.stringify(data),
-  }).then((res) => res.json());
+  }).then(async (res) => { 
+    const parsed = await res.json()
+    
+    if(!res.ok){
+      console.log(parsed.message)
+      throw new Error(parsed.messsage)
+    }   
+    return parsed
+  });
 }
 
 
@@ -26,7 +34,15 @@ export const patch = async (path: string, data: object) => {
       "X-API-KEY": process.env.API_KEY,
     },
     body: JSON.stringify(data),
-  }).then((res) => res.json());
+  }).then(async (res) => { 
+    const parsed = await res.json()
+    
+    if(!res.ok){
+      console.log(parsed.message)
+      throw new Error(parsed.messsage)
+    }   
+    return parsed
+  });
 }
 
 
@@ -38,6 +54,14 @@ export const get = async (path: string) => {
       Accept: "application/json",
       "X-API-KEY": process.env.API_KEY,
     },
-  }).then((res) => res.json());
+  }).then(async (res) => { 
+    const parsed = await res.json()
+    
+    if(!res.ok){
+      console.log(parsed.message)
+      throw new Error(parsed.messsage)
+    }   
+    return parsed
+  });
 }
 

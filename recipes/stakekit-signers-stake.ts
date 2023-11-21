@@ -9,13 +9,14 @@ dotenv.config();
 async function main() {
   let additionalAddresses = {};
   let validatorAddress: string;
-  const integrations = await get(`/v1/stake/opportunities`);
 
+  const {data} = await get(`/v1/yields/enabled`);
+  
   const { integrationId }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "integrationId",
     message: "Choose the integration ID you would like to test: ",
-    choices: integrations.map((integration: { id: string }) => integration.id),
+    choices: data.map((integration: { id: string }) => integration.id),
   });
 
 
@@ -26,11 +27,11 @@ async function main() {
     choices: ['enter', 'exit'],
   });
 
-  const config = await get(`/v1/stake/opportunities/${integrationId}`);
+  const config = await get(`/v1/yields/${integrationId}`);
 
   const walletOptions = {
     mnemonic: process.env.MNEMONIC,
-    walletType: ImportableWallets.MetaMask,
+    walletType: ImportableWallets.Omni,
     index: 0,
   };
 
@@ -42,10 +43,6 @@ async function main() {
     additionalAddresses = await wallet.getAdditionalAddresses();
   }
 
-  if (config.args[action]?.args.validatorAddress) {
-    validatorAddress = config.config.defaultValidator;
-  }
-
   console.log("=== Configuration === ");
   console.log("ID:", config.id);
   console.log(`APY: ${((config.apy || 1) * 100).toFixed(2)}%`);
@@ -53,7 +50,7 @@ async function main() {
   console.log("=== Configuration end === ");
 
   const [balance] = await Promise.all([
-    post(`/v1/token/balances`, {
+    post(`/v1/tokens/balances`, {
       addresses: [
         {
           network: config.token.network,
@@ -64,7 +61,7 @@ async function main() {
     }),
   ]);
 
-  const stakedBalance = await post(`/v1/stake/balances/${integrationId}`, {
+  const stakedBalance = await post(`/v1/yields/${integrationId}/balances`, {
     addresses: { address, additionalAddresses },
     args: { validatorAddresses: [validatorAddress] },
   });
@@ -86,13 +83,43 @@ async function main() {
     amount: amount,
   };
 
-  if (config.args[action]?.args!.validatorAddress) {
+  if (config.args[action]?.args.validatorAddress) {
+    const { validatorAddress }: any = await Enquirer.prompt({
+      type: "input",
+      name: "validatorAddress",
+      message:
+        "To which validator would you like to stake to?",
+    });
     Object.assign(args, {
       validatorAddress: validatorAddress,
     });
+    }
+
+  if (config.args[action]?.args.validatorAddresses) {
+    const { validatorAddresses }: any = await Enquirer.prompt({
+      type: "input",
+      name: "validatorAddresses",
+      message:
+        "To which validator addresses would you like to stake to? (Separated by comma)",
+    });
+    Object.assign(args, {
+      validatorAddresses: validatorAddresses.split(","),
+    });
   }
 
-  const session = await post(`/v1/stake/${action}`, {
+  if (config.args[action]?.args.tronResource) {
+    const { tronResource }: any = await Enquirer.prompt({
+        type: "select",
+       name: "tronResource",
+        message: "Which resource would you like to freeze?",
+        choices: ['ENERGY', 'BANDWIDTH'],
+    });
+    Object.assign(args, {
+      tronResource: tronResource
+    });
+  }
+
+  const session = await post(`/v1/actions/${action}`, {
     integrationId: integrationId,
     addresses: {
       address: address,
@@ -111,7 +138,7 @@ async function main() {
 
     while (true) {
       if (lastTx !== null && lastTx.network !== partialTx.network) {
-        const stakedBalances = await post(`/v1/stake/balances/${integrationId}`, {
+        const stakedBalances = await post(`/v1/yields/${integrationId}/balances`, {
           addresses: { address, additionalAddresses },
           args: { validatorAddresses: [validatorAddress] },
         });
@@ -136,10 +163,10 @@ async function main() {
       }`
     );
 
-    const gas = await get(`/v1/transaction/gas/${config.token.network}`)
+    const gas = await get(`/v1/transactions/gas/${config.token.network}`)
 
     let gasArgs = {};
-    if (gas.code !== 404) {
+    if (gas.customisable !== false) {
       console.log(JSON.stringify(gas));
 
       const { gasMode }: any = await Enquirer.prompt({
@@ -159,7 +186,7 @@ async function main() {
       }
     }
 
-    const unsignedTransaction = await patch(`/v1/transaction/${transactionId}`, gasArgs);
+    const unsignedTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
     console.log(JSON.stringify(unsignedTransaction));
 
     
@@ -172,7 +199,7 @@ async function main() {
       unsignedTransaction.unsignedTransaction
     );
 
-    const result = await post(`/v1/transaction/${transactionId}/submit`, {
+    const result = await post(`/v1/transactions/${transactionId}/submit`, {
       signedTransaction: signed,
     });
 
@@ -180,7 +207,7 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transaction/${transactionId}/status`);
+      const result = await get(`/v1/transactions/${transactionId}/status`);
 
       console.log(result.status);
       if (result.status === "CONFIRMED") {

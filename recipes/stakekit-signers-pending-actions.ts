@@ -10,39 +10,34 @@ async function main() {
   let additionalAddresses = {};
   let validatorAddress: string;
 
-  const integrations = await get(`/v1/stake/opportunities`);
-
+  const {data} = await get(`/v1/yields/enabled`);
+  
   const { integrationId }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "integrationId",
     message: "Choose the integration ID you would like to test: ",
-    choices: integrations.map((integration: { id: string }) => integration.id),
+    choices: data.map((integration: { id: string }) => integration.id),
   });
 
-  const config = await get(`/v1/stake/opportunities/${integrationId}`);
+
+  const config = await get(`/v1/yields/${integrationId}`);
 
   const walletOptions = {
     mnemonic: process.env.MNEMONIC,
-    walletType: ImportableWallets.MetaMask,
+    walletType: ImportableWallets.Omni,
     index: 0,
   };
 
   const wallet = await getSigningWallet(config.token.network, walletOptions);
   const address = await wallet.getAddress();
 
-  console.log(address)
   if (config.args.enter.addresses.additionalAddresses) {
     additionalAddresses = await wallet.getAdditionalAddresses();
   }
 
-  if (config.args.enter.args.validatorAddress) {
-    validatorAddress = config.config.defaultValidator;
-  }
-
-  const stakedBalances = await post(`/v1/stake/balances/${integrationId}`, {
-    addresses: { address, additionalAddresses },
-    args: { validatorAddresses: [validatorAddress] },
-  });
+  const stakedBalances = await post(`/v1/yields/${integrationId}/balances`, {
+    addresses: { address, additionalAddresses }
+    });
 
   console.log("=== Pending Actions ===");
 
@@ -80,17 +75,38 @@ async function main() {
 
   const request = JSON.parse(choice);
 
-  console.log(request)
-  const pendingActionSession = await post("/v1/stake/pending_action", {
+const args = {}
+
+  if (request.args && request.args.args?.validatorAddresses) {
+    const { validatorAddresses }: any = await Enquirer.prompt({
+      type: "input",
+      name: "validatorAddresses",
+      message:
+        "To which validator addresses would you perform the action to? (Separated by comma)",
+    });
+    Object.assign(args, {
+      validatorAddresses: validatorAddresses.split(","),
+    });
+  }
+
+  if (request.args && request.args.args?.validatorAddress) {
+    const { validatorAddress }: any = await Enquirer.prompt({
+      type: "input",
+      name: "validatorAddress",
+      message:
+        "To which validator address would you like perform the action to?",
+    });
+    Object.assign(args, {
+      validatorAddress: validatorAddress
+    });
+  }
+    const pendingActionSession = await post("/v1/actions/pending", {
     integrationId: integrationId,
     type: request.type,
     passthrough: request.passthrough,
-    args: request.args?.args?.validatorAddress ? {
-      validatorAddress: config.config.defaultValidator!
-    } : {},
+    args: args,
   });
 
-  console.log(pendingActionSession)
 
   let lastTx = null;
   for (const partialTx of pendingActionSession.transactions) {
@@ -106,10 +122,10 @@ async function main() {
       } ${partialTx.type}`
     );
 
-    const gas = await get(`/v1/transaction/gas/${config.token.network}`)
+    const gas = await get(`/v1/transactions/gas/${config.token.network}`)
 
     let gasArgs = {};
-    if (gas.code !== 404) {
+    if (gas.customisable !== false) {
       const { gasMode }: any = await Enquirer.prompt({
         type: "select",
         name: "gasMode",
@@ -127,7 +143,7 @@ async function main() {
       }
     }
 
-    const transaction = await patch(`/v1/transaction/${transactionId}`, gasArgs);
+    const transaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
 
 
     const signingWallet = await getSigningWallet(
@@ -139,7 +155,7 @@ async function main() {
       transaction.unsignedTransaction
     );
 
-    const result = await post(`/v1/transaction/${transactionId}/submit`, {
+    const result = await post(`/v1/transactions/${transactionId}/submit`, {
       signedTransaction: signed,
     });
 
@@ -147,7 +163,7 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transaction/${transactionId}/status`);
+      const result = await get(`/v1/transactions/${transactionId}/status`);
 
       if (result.status === "CONFIRMED") {
         console.log(result.url);
