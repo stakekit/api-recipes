@@ -9,8 +9,8 @@ dotenv.config();
 async function main() {
   let additionalAddresses = {};
 
-  const {data} = await get(`/v1/yields/enabled`);
-  
+  const { data } = await get(`/v1/yields/enabled`);
+
   const { integrationId }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "integrationId",
@@ -48,7 +48,7 @@ async function main() {
   console.log(`Token: ${config.token.symbol} on ${config.token.network}`);
   console.log("=== Configuration end === ");
 
-  const [balance] = await Promise.all([
+  const balance = await
     post(`/v1/tokens/balances`, {
       addresses: [
         {
@@ -57,8 +57,8 @@ async function main() {
           tokenAddress: config.token.address,
         },
       ],
-    }),
-  ]);
+    })
+
 
   const stakedBalance = await post(`/v1/yields/${integrationId}/balances`, {
     addresses: { address, additionalAddresses }
@@ -74,10 +74,10 @@ async function main() {
   const { amount }: any = await Enquirer.prompt({
     type: "input",
     name: "amount",
-    message: `How much would you like to ${action === 'enter' ? 'stake': 'unstake'}`,
+    message: `How much would you like to ${action === 'enter' ? 'stake' : 'unstake'}`,
   });
 
-  const args: {amount: string, validatorAddress?: string, validatorAddresses?: string[]} = {
+  const args: { amount: string, validatorAddress?: string, validatorAddresses?: string[] } = {
     amount: amount,
   };
 
@@ -91,7 +91,7 @@ async function main() {
     Object.assign(args, {
       validatorAddress: validatorAddress,
     });
-    }
+  }
 
   if (config.args[action]?.args.validatorAddresses) {
     const { validatorAddresses }: any = await Enquirer.prompt({
@@ -107,10 +107,10 @@ async function main() {
 
   if (config.args[action]?.args.tronResource) {
     const { tronResource }: any = await Enquirer.prompt({
-        type: "select",
-       name: "tronResource",
-        message: "Which resource would you like to freeze?",
-        choices: ['ENERGY', 'BANDWIDTH'],
+      type: "select",
+      name: "tronResource",
+      message: "Which resource would you like to freeze?",
+      choices: ['ENERGY', 'BANDWIDTH'],
     });
     Object.assign(args, {
       tronResource: tronResource
@@ -141,9 +141,9 @@ async function main() {
           args: { validatorAddresses: [args.validatorAddress] },
         });
 
-     const locked = stakedBalances.find((balance) => balance.type === 'locked')
+        const locked = stakedBalances.find((balance) => balance.type === 'locked')
 
-        if(locked.amount >= session.amount) {
+        if (locked.amount >= session.amount) {
           console.log('Locked amount available')
           break
         } else {
@@ -161,7 +161,7 @@ async function main() {
       }`
     );
 
-    const gas = await get(`/v1/transactions/gas/${config.token.network}`)
+    const gas = await get(`/v1/transactions/gas/${config.token.network}`);
 
     let gasArgs = {};
     if (gas.customisable !== false) {
@@ -185,9 +185,7 @@ async function main() {
     }
 
     const unsignedTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
-    console.log(JSON.stringify(unsignedTransaction));
 
-    
     const signingWallet = await getSigningWallet(
       unsignedTransaction.network,
       walletOptions
@@ -197,21 +195,19 @@ async function main() {
       unsignedTransaction.unsignedTransaction
     );
 
-    const result = await post(`/v1/transactions/${transactionId}/submit`, {
-      signedTransaction: signed,
-    });
+    const result = await post(`/v1/transactions/${transactionId}/submit`, { signedTransaction: signed, })
 
+    console.log(result)
     lastTx = { network: unsignedTransaction.network, result: result };
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transactions/${transactionId}/status`);
+      const result = await get(`/v1/transactions/${transactionId}/status`).catch(null)
 
-      console.log(result.status);
-      if (result.status === "CONFIRMED") {
+      if (result && result.status === "CONFIRMED") {
         console.log(result.url);
         break;
-      } else if (result.status === "FAILED") {
+      } else if (result && result.status === "FAILED") {
         console.log("TRANSACTION FAILED");
         break;
       } else {

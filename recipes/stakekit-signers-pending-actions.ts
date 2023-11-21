@@ -9,8 +9,8 @@ dotenv.config();
 async function main() {
   let additionalAddresses = {};
 
-  const {data} = await get(`/v1/yields/enabled`);
-  
+  const { data } = await get(`/v1/yields/enabled`);
+
   const { integrationId }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "integrationId",
@@ -35,7 +35,7 @@ async function main() {
 
   const stakedBalances = await post(`/v1/yields/${integrationId}/balances`, {
     addresses: { address, additionalAddresses }
-    });
+  });
 
   console.log("=== Pending Actions ===");
 
@@ -73,7 +73,7 @@ async function main() {
 
   const request = JSON.parse(choice);
 
-const args = {}
+  const args = {}
 
   if (request.args && request.args.args?.validatorAddresses) {
     const { validatorAddresses }: any = await Enquirer.prompt({
@@ -98,7 +98,7 @@ const args = {}
       validatorAddress: validatorAddress
     });
   }
-    const pendingActionSession = await post("/v1/actions/pending", {
+  const pendingActionSession = await post("/v1/actions/pending", {
     integrationId: integrationId,
     type: request.type,
     passthrough: request.passthrough,
@@ -120,7 +120,7 @@ const args = {}
       } ${partialTx.type}`
     );
 
-    const gas = await get(`/v1/transactions/gas/${config.token.network}`)
+    const gas = await get(`/v1/transactions/gas/${config.token.network}`);
 
     let gasArgs = {};
     if (gas.customisable !== false) {
@@ -153,20 +153,18 @@ const args = {}
       transaction.unsignedTransaction
     );
 
-    const result = await post(`/v1/transactions/${transactionId}/submit`, {
-      signedTransaction: signed,
-    });
+    const result = await post(`/v1/transactions/${transactionId}/submit`, { signedTransaction: signed, })
 
     lastTx = { network: transaction.network, result: result };
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transactions/${transactionId}/status`);
-
-      if (result.status === "CONFIRMED") {
+      const result = await get(`/v1/transactions/${transactionId}/status`)
+      console.log(result)
+      if (result && result.status === "CONFIRMED") {
         console.log(result.url);
         break;
-      } else if (result.status === "FAILED") {
+      } else if (result && result.status === "FAILED") {
         console.log("TRANSACTION FAILED");
         break;
       } else {

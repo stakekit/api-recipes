@@ -10,8 +10,8 @@ dotenv.config();
 async function main() {
   let additionalAddresses = {};
 
-  const {data} = await get(`/v1/yields/enabled`);
-  
+  const { data } = await get(`/v1/yields/enabled`);
+
   const { integrationId }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "integrationId",
@@ -29,18 +29,16 @@ async function main() {
   console.log(`Token: ${config.token.symbol} on ${config.token.network}`);
   console.log("=== Configuration end === ");
 
-  const [balance] = await Promise.all([
-    post(`/v1/tokens/balances`, {
-      addresses: [
-        {
-          network: config.token.network,
-          address,
-          tokenAddress: config.token.address,
-        },
-      ],
-    }),
-  ]);
-  
+  const balance = await post(`/v1/tokens/balances`, {
+    addresses: [
+      {
+        network: config.token.network,
+        address,
+        tokenAddress: config.token.address,
+      },
+    ],
+  });
+
   const stakedBalance = await post(`/v1/yields/${integrationId}/balances`, {
     addresses: { address }
   });
@@ -62,9 +60,9 @@ async function main() {
   const { amount }: any = await Enquirer.prompt({
     type: "input",
     name: "amount",
-    message: `How much would you like to ${action === 'enter' ? 'stake': 'unstake'}`,
+    message: `How much would you like to ${action === 'enter' ? 'stake' : 'unstake'}`,
   });
-  
+
 
   const session = await post(`/v1/actions/${action}`, {
     integrationId: integrationId,
@@ -75,7 +73,7 @@ async function main() {
     args: {
       amount: amount,
     }
-   });
+  });
 
   let lastTx = null;
   for (const partialTx of session.transactions) {
@@ -114,7 +112,6 @@ async function main() {
     const transaction = await patch(`/v1/transactions/${transactionId}`, {
       gasArgs,
     });
-    console.log(JSON.stringify(transaction));
 
     const signed = await wallet.signTransaction(
       JSON.parse(transaction.unsignedTransaction)
@@ -128,13 +125,12 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transactions/${transactionId}/status`);
+      const result = await get(`/v1/transactions/${transactionId}/status`)
 
-      console.log(result.status);
-      if (result.status === "CONFIRMED") {
+      if (result && result.status === "CONFIRMED") {
         console.log(result.url);
         break;
-      } else if (result.status === "FAILED") {
+      } else if (result && result.status === "FAILED") {
         console.log("TRANSACTION FAILED");
         break;
       } else {
