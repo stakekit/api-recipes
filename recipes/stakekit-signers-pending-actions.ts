@@ -159,7 +159,7 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transactions/${transactionId}/status`)
+      const result = await get(`/v1/transactions/${transactionId}/status`).catch(() => null)
       console.log(result)
       if (result && result.status === "CONFIRMED") {
         console.log(result.url);

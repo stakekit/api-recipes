@@ -36,7 +36,7 @@ async function main() {
 
   const wallet = await getSigningWallet(config.token.network, walletOptions);
   const address = await wallet.getAddress();
-
+console.log(address)
 
   if (config.args[action]?.addresses.additionalAddresses) {
     additionalAddresses = await wallet.getAdditionalAddresses();
@@ -202,7 +202,7 @@ async function main() {
     console.log(JSON.stringify(lastTx));
 
     while (true) {
-      const result = await get(`/v1/transactions/${transactionId}/status`).catch(null)
+      const result = await get(`/v1/transactions/${transactionId}/status`).catch(() => null)
 
       if (result && result.status === "CONFIRMED") {
         console.log(result.url);

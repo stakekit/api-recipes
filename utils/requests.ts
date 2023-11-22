@@ -16,7 +16,7 @@ export const post = async (path: string, data: object) => {
   }).then(async (res) => {
     const parsed = await res.json()
     if (!res.ok) {
-      console.log(res)
+      console.log(parsed)
       throw new Error(res.statusText)
     }
     return parsed
@@ -37,7 +37,7 @@ export const patch = async (path: string, data: object) => {
     const parsed = await res.json()
 
     if (!res.ok) {
-      console.log(res)
+      console.log(parsed)
       throw new Error(res.statusText)
     }
     return parsed
@@ -57,7 +57,7 @@ export const get = async (path: string) => {
     const parsed = await res.json()
 
     if (!res.ok) {
-      console.log(res)
+      console.log(parsed)
       throw new Error(res.statusText)
     }
     return parsed
