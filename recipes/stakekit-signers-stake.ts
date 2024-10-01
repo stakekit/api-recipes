@@ -174,6 +174,25 @@ console.log(address)
     const gas = await get(`/v1/transactions/gas/${config.token.network}`);
 
     let gasArgs = {};
+    if (gas.customisable !== false) {
+      console.log(JSON.stringify(gas));
+
+      const { gasMode }: any = await Enquirer.prompt({
+        type: "select",
+        name: "gasMode",
+        message: `Which gas mode would you like to execute with (${gas.modes.denom})?`,
+        choices: [...gas.modes.values, { name: "custom" }].map((g) => {
+          return { message: g.name, name: g };
+        }),
+      });
+
+      if (gasMode.name === "custom") {
+        console.log("Custom gas mode not supported for now.");
+        throw null;
+      } else {
+        gasArgs = gasMode.gasArgs;
+      }
+    }
 
     const unsignedTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
 
@@ -196,7 +215,6 @@ console.log(address)
       const result = await get(`/v1/transactions/${transactionId}/status`).catch(() => null)
 
       if (result && result.status === "CONFIRMED") {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
         console.log(result.url);
         break;
       } else if (result && result.status === "FAILED") {
