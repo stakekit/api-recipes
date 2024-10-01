@@ -121,6 +121,8 @@ async function main() {
       signedTransaction: signed,
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
     lastTx = { network: transaction.network, result: result };
     console.log(JSON.stringify(lastTx));
 

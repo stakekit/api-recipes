@@ -207,6 +207,8 @@ console.log(address)
 
     const result = await post(`/v1/transactions/${transactionId}/submit`, { signedTransaction: signed, })
 
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
     console.log(result)
     lastTx = { network: unsignedTransaction.network, result: result };
     console.log(JSON.stringify(lastTx));

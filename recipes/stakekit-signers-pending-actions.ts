@@ -155,6 +155,8 @@ async function main() {
 
     const result = await post(`/v1/transactions/${transactionId}/submit`, { signedTransaction: signed, })
 
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
     lastTx = { network: transaction.network, result: result };
     console.log(JSON.stringify(lastTx));
 
