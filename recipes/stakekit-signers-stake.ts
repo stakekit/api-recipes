@@ -194,7 +194,19 @@ console.log(address)
       }
     }
 
-    const unsignedTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
+    let unsignedTransaction;
+    for (let i = 0; i < 3; i++) {
+      try {
+      unsignedTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
+      break;
+      } catch (error) {
+      console.log(`Attempt ${i + 1} failed. Retrying in 1 second...`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    if (!unsignedTransaction) {
+      throw new Error("Failed to get unsigned transaction after 3 attempts");
+    }
 
     const signingWallet = await getSigningWallet(
       unsignedTransaction.network,
