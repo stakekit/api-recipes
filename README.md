@@ -67,21 +67,6 @@ pnpm ts-node recipes/stakekit-signers-pending-actions.ts
 pnpm pending-actions
 ```
 
-## Using npm Scripts
-
-For convenience, you can also use the predefined npm scripts to run the recipes:
-
-```bash
-# Run the ethers staking example
-pnpm ethers-stake
-
-# Run the @stakekit/signers staking example
-pnpm stakekit-signers-stake
-
-# Run the pending actions example
-pnpm pending-actions
-```
-
 ## Recipe Structure
 
 Each recipe follows a similar workflow:
