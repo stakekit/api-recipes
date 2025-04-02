@@ -28,7 +28,7 @@ cp .env.example .env
 3. Fill in your `.env` file with:
    - `MNEMONIC`: Your wallet's seed phrase
    - `API_KEY`: Your StakeKit API key
-   - `API_ENDPOINT`: The StakeKit API endpoint (default: https://api-server.steakwallet.fi)
+   - `API_ENDPOINT`: The StakeKit API endpoint (default: https://api.stakek.it)
 4. Install dependencies:
 
 ```bash

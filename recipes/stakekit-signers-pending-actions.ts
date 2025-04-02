@@ -25,6 +25,9 @@ if (!process.env.API_KEY) {
   process.exit(1);
 }
 
+// Store the selected integration ID
+let selectedIntegrationId = '';
+
 /**
  * Main execution function
  */
@@ -49,12 +52,18 @@ async function main() {
       })),
     });
     
+    // Store integration ID globally for later use
+    selectedIntegrationId = integrationId;
+    
     // Find selected integration data
     const selectedIntegration = data.find(integration => integration.id === integrationId);
     if (!selectedIntegration) {
       console.error("Selected integration not found");
       return;
     }
+
+    // For certain advanced options, we need the full configuration
+    const config = await get(`/v1/yields/${integrationId}`);
 
     // Initialize wallet
     const walletOptions = {
@@ -71,7 +80,10 @@ async function main() {
 
     // Get additional addresses if needed by the integration
     let additionalAddresses = {};
-    // The StakeKit API will tell us if additional addresses are needed
+    if (config.args.enter?.addresses.additionalAddresses) {
+      console.log("Getting additional addresses required by the integration...");
+      additionalAddresses = await wallet.getAdditionalAddresses();
+    }
 
     // Get staked balances with pending actions
     console.log(`\nRetrieving staked balances for ${integrationId}...`);
@@ -118,13 +130,17 @@ async function main() {
     const request = JSON.parse(choice);
     console.log(`\nSelected action: ${request.type}`);
 
+    // Prepare arguments for the pending action
+    const args = {};
+    await collectRequiredArguments(request, args, stakedBalances);
+
     // Create pending action session
     console.log("\nCreating pending action session...");
     const pendingActionSession = await post("/v1/actions/pending", {
       integrationId: integrationId,
       type: request.type,
       passthrough: request.passthrough,
-      args: {}
+      args: args,
     });
 
     console.log(`Processing pending action with ${pendingActionSession.transactions.length} transactions...\n`);
@@ -135,11 +151,11 @@ async function main() {
       const transactionId = partialTx.id;
 
       if (partialTx.status === "SKIPPED") {
-        console.log(`Skipping step ${partialTx.stepIndex}: ${partialTx.type}`);
+        console.log(`Skipping step ${partialTx.stepIndex + 1}: ${partialTx.type}`);
         continue;
       }
       
-      console.log(`Processing step ${partialTx.stepIndex} of ${pendingActionSession.transactions.length}: ${partialTx.type}`);
+      console.log(`Processing step ${partialTx.stepIndex + 1} of ${pendingActionSession.transactions.length}: ${partialTx.type}`);
 
       // Get gas price options
       const gas = await get(`/v1/transactions/gas/${partialTx.network || selectedIntegration.token.network}`);
@@ -218,6 +234,67 @@ async function main() {
     
   } catch (error) {
     console.error("Error executing pending action:", error);
+  }
+}
+
+/**
+ * Collects additional arguments required by the pending action
+ */
+async function collectRequiredArguments(request, args, stakedBalances) {
+  // Use the stored integration ID
+  const integrationId = selectedIntegrationId;
+  
+  // Get validator address if required
+  if (request.args && request.args.args?.validatorAddress?.required) {
+    // Fetch available validators
+    const validatorsData = await get(`/v2/yields/${integrationId}/validators`);
+    
+    if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+      const validators = validatorsData[0].validators;
+      
+      // Format validators for selection
+      const validatorChoices = validators.map(validator => ({
+        name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+        value: validator.address
+      }));
+      
+      // Ask user to select a validator
+      const { selectedValidator }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedValidator",
+        message: `Select a validator:`,
+        choices: validatorChoices,
+      });
+      
+      args.validatorAddress = selectedValidator;
+    }
+  }
+  
+  // Get validator addresses if required
+  if (request.args && request.args.args?.validatorAddresses?.required) {
+    // Fetch available validators
+    const validatorsData = await get(`/v2/yields/${integrationId}/validators`);
+    
+    if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+      const validators = validatorsData[0].validators;
+      
+      // Format validators for selection
+      const validatorChoices = validators.map(validator => ({
+        name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+        value: validator.address
+      }));
+      
+      // Ask user to select a single validator
+      const { selectedValidator }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedValidator",
+        message: "Select a validator:",
+        choices: validatorChoices,
+      });
+      
+      // Use an array with a single validator
+      args.validatorAddresses = [selectedValidator];
+    }
   }
 }
 

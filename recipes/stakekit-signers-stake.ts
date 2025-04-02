@@ -64,6 +64,9 @@ async function main() {
       choices: ['enter', 'exit'],
     });
 
+    // For certain advanced options, we need the full configuration
+    const config = await get(`/v1/yields/${integrationId}`);
+
     // Initialize wallet
     const walletOptions = {
       mnemonic: process.env.MNEMONIC,
@@ -79,7 +82,10 @@ async function main() {
 
     // Get additional addresses if needed by the integration
     let additionalAddresses = {};
-    // The StakeKit API will tell us if additional addresses are needed
+    if (config.args[action]?.addresses.additionalAddresses) {
+      console.log("Getting additional addresses required by the integration...");
+      additionalAddresses = await wallet.getAdditionalAddresses();
+    }
 
     // Display configuration info
     console.log("\n=== Integration Info === ");
@@ -118,6 +124,14 @@ async function main() {
       message: `How much would you like to ${action === 'enter' ? 'stake' : 'unstake'}`,
     });
 
+    // Prepare arguments object
+    const args: { amount: string, validatorAddress?: string, validatorAddresses?: string[], tronResource?: string, duration?: string } = {
+      amount: amount,
+    };
+
+    // Get additional required arguments based on integration config
+    await collectRequiredArguments(config, action, args);
+
     // Create action session
     console.log(`\nCreating ${action} action session...`);
     const session = await post(`/v1/actions/${action}`, {
@@ -126,9 +140,7 @@ async function main() {
         address: address,
         additionalAddresses: additionalAddresses,
       },
-      args: {
-        amount: amount,
-      }
+      args,
     });
 
     console.log(`Processing ${action} action with ${session.transactions.length} transactions...\n`);
@@ -139,7 +151,7 @@ async function main() {
       const transactionId = partialTx.id;
 
       if (partialTx.status === "SKIPPED") {
-        console.log(`Skipping step ${partialTx.stepIndex}: ${partialTx.type}`);
+        console.log(`Skipping step ${partialTx.stepIndex + 1}: ${partialTx.type}`);
         continue;
       }
 
@@ -149,7 +161,7 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
       
-      console.log(`Processing step ${partialTx.stepIndex} of ${session.transactions.length}: ${partialTx.type}`);
+      console.log(`Processing step ${partialTx.stepIndex + 1} of ${session.transactions.length}: ${partialTx.type}`);
 
       // Get gas price options
       const gas = await get(`/v1/transactions/gas/${partialTx.network || selectedIntegration.token.network}`);
@@ -241,6 +253,85 @@ async function main() {
     
   } catch (error) {
     console.error("Error executing staking action:", error);
+  }
+}
+
+/**
+ * Collects additional arguments required by the integration
+ */
+async function collectRequiredArguments(config, action, args) {
+  // Get validator address if required
+  if (config.args[action]?.args.validatorAddress) {
+    // Fetch available validators
+    const validatorsData = await get(`/v2/yields/${config.id}/validators`);
+    
+    if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+      const validators = validatorsData[0].validators;
+      
+      // Format validators for selection
+      const validatorChoices = validators.map(validator => ({
+        name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+        value: validator.address
+      }));
+      
+      // Ask user to select a validator
+      const { selectedValidator }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedValidator",
+        message: "Select a validator to stake with:",
+        choices: validatorChoices,
+      });
+      
+      args.validatorAddress = selectedValidator;
+    }
+  }
+
+  // Get validator addresses if required
+  if (config.args[action]?.args.validatorAddresses) {
+    // Fetch available validators
+    const validatorsData = await get(`/v2/yields/${config.id}/validators`);
+    
+    if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+      const validators = validatorsData[0].validators;
+      
+      // Format validators for selection
+      const validatorChoices = validators.map(validator => ({
+        name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+        value: validator.address
+      }));
+      
+      // Ask user to select a single validator
+      const { selectedValidator }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedValidator",
+        message: "Select a validator to stake with:",
+        choices: validatorChoices,
+      });
+      
+      // Use an array with a single validator
+      args.validatorAddresses = [selectedValidator];
+    }
+  }
+
+  // Get Tron resource type if required
+  if (config.args[action]?.args.tronResource) {
+    const { tronResource }: any = await Enquirer.prompt({
+      type: "select",
+      name: "tronResource",
+      message: "Which resource would you like to freeze?",
+      choices: ['ENERGY', 'BANDWIDTH'],
+    });
+    args.tronResource = tronResource;
+  }
+
+  // Get duration if required
+  if (config.args[action]?.args.duration) {
+    const { duration }: any = await Enquirer.prompt({
+      type: "input",
+      name: "duration",
+      message: "For how long would you like to stake? (in days)",
+    });
+    args.duration = duration;
   }
 }
 

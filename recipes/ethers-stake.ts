@@ -61,6 +61,9 @@ async function main() {
       return;
     }
 
+    // Get full integration config for argument inspection
+    const config = await get(`/v1/yields/${integrationId}`);
+
     // Display configuration info
     console.log("\n=== Integration Info === ");
     console.log("ID:", selectedIntegration.id);
@@ -106,6 +109,14 @@ async function main() {
       message: `How much would you like to ${action === 'enter' ? 'stake' : 'unstake'}`,
     });
 
+    // Prepare arguments object
+    const args: { amount: string, validatorAddress?: string, validatorAddresses?: string[], tronResource?: string, duration?: string } = {
+      amount: amount,
+    };
+
+    // Get additional required arguments based on integration config
+    await collectRequiredArguments(config, action, args);
+
     // Create action session
     const session = await post(`/v1/actions/${action}`, {
       integrationId: integrationId,
@@ -113,9 +124,7 @@ async function main() {
         address: address,
         additionalAddresses: {},
       },
-      args: {
-        amount: amount,
-      }
+      args
     });
 
     console.log(`\nProcessing ${action} action with ${session.transactions.length} transactions...\n`);
@@ -126,11 +135,11 @@ async function main() {
       const transactionId = partialTx.id;
 
       if (partialTx.status === "SKIPPED") {
-        console.log(`Skipping step ${partialTx.stepIndex}: ${partialTx.type}`);
+        console.log(`Skipping step ${partialTx.stepIndex + 1}: ${partialTx.type}`);
         continue;
       }
       
-      console.log(`Processing step ${partialTx.stepIndex} of ${session.transactions.length}: ${partialTx.type}`);
+      console.log(`Processing step ${partialTx.stepIndex + 1} of ${session.transactions.length}: ${partialTx.type}`);
 
       // Get gas price options
       const gas = await get(`/v1/transactions/gas/${selectedIntegration.token.network}`);
@@ -207,22 +216,55 @@ async function main() {
 async function collectRequiredArguments(config, action, args) {
   // Get validator address if required
   if (config.args[action]?.args.validatorAddress) {
-    const { validatorAddress }: any = await Enquirer.prompt({
-      type: "input",
-      name: "validatorAddress",
-      message: "To which validator would you like to stake to?",
-    });
-    args.validatorAddress = validatorAddress;
+    // Fetch available validators
+    const validatorsData = await get(`/v2/yields/${config.id}/validators`);
+    
+    if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+      const validators = validatorsData[0].validators;
+      
+      // Format validators for selection
+      const validatorChoices = validators.map(validator => ({
+        name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+        value: validator.address
+      }));
+      
+      // Ask user to select a validator
+      const { selectedValidator }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedValidator",
+        message: "Select a validator to stake with:",
+        choices: validatorChoices,
+      });
+      
+      args.validatorAddress = selectedValidator;
+    }
   }
 
   // Get validator addresses if required
   if (config.args[action]?.args.validatorAddresses) {
-    const { validatorAddresses }: any = await Enquirer.prompt({
-      type: "input",
-      name: "validatorAddresses",
-      message: "To which validator addresses would you like to stake to? (Separated by comma)",
-    });
-    args.validatorAddresses = validatorAddresses.split(",");
+    // Fetch available validators
+    const validatorsData = await get(`/v2/yields/${config.id}/validators`);
+    
+    if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+      const validators = validatorsData[0].validators;
+      
+      // Format validators for selection
+      const validatorChoices = validators.map(validator => ({
+        name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+        value: validator.address
+      }));
+      
+      // Ask user to select a single validator
+      const { selectedValidator }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedValidator",
+        message: "Select a validator to stake with:",
+        choices: validatorChoices,
+      });
+      
+      // Use an array with a single validator
+      args.validatorAddresses = [selectedValidator];
+    }
   }
 
   // Get Tron resource type if required
