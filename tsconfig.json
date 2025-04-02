@@ -1,6 +1,14 @@
 {
   "compilerOptions": {
-    "lib": ["DOM"],
-    "esModuleInterop": true
-  }
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ES2020"]
+  },
+  "include": ["recipes/**/*", "utils/**/*"],
+  "exclude": ["node_modules"]
 }

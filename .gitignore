@@ -3,6 +3,5 @@ node_modules
 .env.local
 **.log
 .DS_Store
-lib
-**/lib
-.yarn
+.pnpm-store
+.pnpm-debug.log

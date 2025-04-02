@@ -1,110 +1,257 @@
+/**
+ * StakeKit API Recipe: Staking with @stakekit/signers
+ * 
+ * This example demonstrates how to use the StakeKit API with @stakekit/signers
+ * to stake tokens on various networks, with support for specialized wallet types.
+ */
+
 import * as dotenv from "dotenv";
 import { ImportableWallets, getSigningWallet } from "@stakekit/signers";
 import "cross-fetch/polyfill";
 import Enquirer from "enquirer";
 import { get, patch, post } from "../utils/requests";
 
+// Load environment variables
 dotenv.config();
 
+// Check for required environment variables
+if (!process.env.MNEMONIC || !process.env.API_KEY) {
+  console.error("Error: MNEMONIC and API_KEY environment variables are required");
+  process.exit(1);
+}
+
+// Store the selected integration ID globally for validator lookup
+let selectedIntegrationId = '';
+
+/**
+ * Main execution function
+ */
 async function main() {
-  let additionalAddresses = {};
+  try {
+    // Step 1: Get available staking integrations from StakeKit API
+    const { data } = await get(`/v1/yields/enabled`);
+    
+    if (!data || data.length === 0) {
+      console.error("No enabled yield integrations found");
+      return;
+    }
 
-  const { data } = await get(`/v1/yields/enabled`);
+    // Step 2: Let user select an integration to use
+    const { integrationId }: any = await Enquirer.prompt({
+      type: "autocomplete",
+      name: "integrationId",
+      message: "Choose the staking integration you would like to use: ",
+      choices: data.map((integration: { id: string; name: string; apy: number; token: { symbol: string }}) => ({
+        name: `${integration.name || integration.id} (${integration.token.symbol}) - APY: ${((integration.apy || 1) * 100).toFixed(2)}%`,
+        value: integration.id
+      })),
+    });
+    
+    // Store integration ID globally
+    selectedIntegrationId = integrationId;
+    
+    // Find selected integration data
+    const selectedIntegration = data.find(integration => integration.id === integrationId);
+    if (!selectedIntegration) {
+      console.error("Selected integration not found");
+      return;
+    }
 
-  const { integrationId }: any = await Enquirer.prompt({
-    type: "autocomplete",
-    name: "integrationId",
-    message: "Choose the integration ID you would like to test: ",
-    choices: data.map((integration: { id: string }) => integration.id),
-  });
+    // Step 3: Select action (stake/unstake)
+    const { action }: any = await Enquirer.prompt({
+      type: "select",
+      name: "action",
+      message: "What action would you like to perform?",
+      choices: ['enter', 'exit'],
+    });
 
+    // Step 4: Get full integration config to determine required args
+    const config = await get(`/v1/yields/${integrationId}`);
 
-  const { action }: any = await Enquirer.prompt({
-    type: "select",
-    name: "action",
-    message: "What ation would you like to perform?",
-    choices: ['enter', 'exit'],
-  });
+    // Step 5: Initialize wallet with @stakekit/signers
+    const walletOptions = {
+      mnemonic: process.env.MNEMONIC,
+      walletType: ImportableWallets.Omni, // Universal wallet type
+      index: 0,
+    };
 
-  const config = await get(`/v1/yields/${integrationId}`);
+    // Get network-specific wallet
+    console.log(`Initializing wallet for ${selectedIntegration.token.network}...`);
+    const wallet = await getSigningWallet(selectedIntegration.token.network, walletOptions);
+    const address = await wallet.getAddress();
+    console.log(`Wallet address: ${address}`);
 
-  const walletOptions = {
-    mnemonic: process.env.MNEMONIC,
-    walletType: ImportableWallets.Omni,
-    index: 0,
-  };
+    // Step 6: Get additional addresses if required by the integration
+    let additionalAddresses = {};
+    if (config.args[action]?.addresses.additionalAddresses) {
+      console.log("Getting additional addresses required by the integration...");
+      additionalAddresses = await wallet.getAdditionalAddresses();
+    }
 
-  const wallet = await getSigningWallet(config.token.network, walletOptions);
-  const address = await wallet.getAddress();
-console.log(address)
+    // Step 7: Get token and staked balances
+    const [balance, stakedBalance] = await Promise.all([
+      post(`/v1/tokens/balances`, {
+        addresses: [
+          {
+            network: selectedIntegration.token.network,
+            address,
+            tokenAddress: selectedIntegration.token.address,
+          },
+        ],
+      }),
+      post(`/v1/yields/${integrationId}/balances`, {
+        addresses: { address, additionalAddresses }
+      })
+    ]);
 
-  if (config.args[action]?.addresses.additionalAddresses) {
-    additionalAddresses = await wallet.getAdditionalAddresses();
+    // Display balances
+    console.log("\n=== Balances ===");
+    console.log(`Available ${selectedIntegration.token.symbol}: ${balance[0]?.amount || "0"}`);
+    console.log(`Staked: ${JSON.stringify(stakedBalance)}`);
+    console.log("=== Balances End ===\n");
+
+    // Step 8: Enter amount to stake/unstake
+    const { amount }: any = await Enquirer.prompt({
+      type: "input",
+      name: "amount",
+      message: `How much would you like to ${action === 'enter' ? 'stake' : 'unstake'}`,
+    });
+
+    // Prepare arguments object for API call
+    const args = { amount };
+
+    // Step 9: Get additional required arguments (validators, durations, etc.)
+    await collectRequiredArguments(config, action, args);
+
+    // Step 10: Create action session
+    console.log(`\nCreating ${action} action session...`);
+    const session = await post(`/v1/actions/${action}`, {
+      integrationId: integrationId,
+      addresses: {
+        address: address,
+        additionalAddresses: additionalAddresses,
+      },
+      args,
+    });
+
+    console.log(`Processing ${action} action with ${session.transactions.length} transactions...\n`);
+
+    // Step 11: Process each transaction in the session
+    let prevNetwork = null;
+    
+    for (const partialTx of session.transactions) {
+      const transactionId = partialTx.id;
+      const currentNetwork = partialTx.network || selectedIntegration.token.network;
+
+      // Handle transaction skipping
+      if (partialTx.status === "SKIPPED") {
+        console.log(`Skipping step ${partialTx.stepIndex + 1} of ${session.transactions.length}: ${partialTx.type}`);
+        continue;
+      }
+
+      // Handle cross-chain transactions
+      if (prevNetwork && prevNetwork !== currentNetwork) {
+        console.log("Cross-chain transaction detected. Waiting for funds to arrive in destination chain...");
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
+      
+      console.log(`Processing step ${partialTx.stepIndex + 1} of ${session.transactions.length}: ${partialTx.type}`);
+
+      // Step 11.1: Get gas price options for current network
+      const gas = await get(`/v1/transactions/gas/${currentNetwork}`);
+      
+      // Step 11.2: Select gas mode if customizable
+      let gasArgs = {};
+      if (gas.customisable !== false) {
+        const { gasMode }: any = await Enquirer.prompt({
+          type: "select",
+          name: "gasMode",
+          message: `Which gas mode would you like to use?`,
+          choices: gas.modes?.values.map(g => ({
+            message: `${g.name} (${gas.modes?.denom || 'default'})`,
+            name: g
+          })) || [{ message: "default", name: { name: "default" } }],
+        });
+
+        if (gasMode.name !== "custom") {
+          gasArgs = gasMode.gasArgs;
+        }
+      }
+
+      // Step 11.3: Prepare transaction
+      console.log("Preparing transaction...");
+      const transaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
+
+      // Step 11.4: Get network-specific wallet for the current network
+      const signingWallet = await getSigningWallet(
+        transaction.network,
+        walletOptions
+      );
+
+      // Step 11.5: Sign transaction with appropriate wallet
+      console.log("Signing transaction...");
+      const signed = await signingWallet.signTransaction(
+        transaction.unsignedTransaction
+      );
+
+      // Step 11.6: Submit signed transaction
+      console.log("Submitting transaction...");
+      const result = await post(`/v1/transactions/${transactionId}/submit`, { 
+        signedTransaction: signed 
+      });
+
+      console.log("Transaction submitted:", JSON.stringify({
+        network: transaction.network,
+        txId: result.id
+      }, null, 2));
+
+      // Step 11.7: Wait for transaction confirmation
+      console.log("Waiting for transaction confirmation...");
+      let confirmed = false;
+      
+      while (!confirmed) {
+        const statusResult = await get(`/v1/transactions/${transactionId}/status`).catch(() => null);
+
+        if (statusResult && statusResult.status === "CONFIRMED") {
+          console.log("Transaction confirmed!");
+          console.log("Explorer URL:", statusResult.url);
+          confirmed = true;
+        } else if (statusResult && statusResult.status === "FAILED") {
+          console.error("Transaction failed!");
+          confirmed = true;
+        } else {
+          process.stdout.write(".");
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+      
+      // Update previous network
+      prevNetwork = currentNetwork;
+      console.log("\n");
+    }
+    
+    console.log("Action completed successfully!");
+    
+  } catch (error) {
+    console.error("Error executing staking action:", error);
   }
+}
 
-  console.log("=== Configuration === ");
-  console.log("ID:", config.id);
-  console.log(`APY: ${((config.apy || 1) * 100).toFixed(2)}%`);
-  console.log(`Token: ${config.token.symbol} on ${config.token.network}`);
-  console.log("=== Configuration end === ");
-
-  const balance = await
-    post(`/v1/tokens/balances`, {
-      addresses: [
-        {
-          network: config.token.network,
-          address,
-          tokenAddress: config.token.address,
-        },
-      ],
-    })
-
-
-  const stakedBalance = await post(`/v1/yields/${integrationId}/balances`, {
-    addresses: { address, additionalAddresses }
-  });
-
-  console.log("=== Balances ===");
-
-  console.log("Available", config.token.symbol, balance[0].amount);
-  console.log("Staked", stakedBalance);
-
-  console.log("=== Balances end ===");
-
-  const { amount }: any = await Enquirer.prompt({
-    type: "input",
-    name: "amount",
-    message: `How much would you like to ${action === 'enter' ? 'stake' : 'unstake'}`,
-  });
-
-  const args: { amount: string, validatorAddress?: string, validatorAddresses?: string[] } = {
-    amount: amount,
-  };
-
+/**
+ * Collects additional arguments required by the integration
+ */
+async function collectRequiredArguments(config, action, args) {
+  // Get validator address if required
   if (config.args[action]?.args.validatorAddress) {
-    const { validatorAddress }: any = await Enquirer.prompt({
-      type: "input",
-      name: "validatorAddress",
-      message:
-        "To which validator would you like to stake to?",
-    });
-    Object.assign(args, {
-      validatorAddress: validatorAddress,
-    });
+    await addValidatorToArgs(args, 'validatorAddress');
   }
 
+  // Get validator addresses if required
   if (config.args[action]?.args.validatorAddresses) {
-    const { validatorAddresses }: any = await Enquirer.prompt({
-      type: "input",
-      name: "validatorAddresses",
-      message:
-        "To which validator addresses would you like to stake to? (Separated by comma)",
-    });
-    Object.assign(args, {
-      validatorAddresses: validatorAddresses.split(","),
-    });
+    await addValidatorToArgs(args, 'validatorAddresses');
   }
 
+  // Get Tron resource type if required
   if (config.args[action]?.args.tronResource) {
     const { tronResource }: any = await Enquirer.prompt({
       type: "select",
@@ -112,143 +259,54 @@ console.log(address)
       message: "Which resource would you like to freeze?",
       choices: ['ENERGY', 'BANDWIDTH'],
     });
-    Object.assign(args, {
-      tronResource: tronResource
-    });
+    args.tronResource = tronResource;
   }
 
+  // Get duration if required
   if (config.args[action]?.args.duration) {
     const { duration }: any = await Enquirer.prompt({
       type: "input",
       name: "duration",
       message: "For how long would you like to stake? (in days)",
     });
-    Object.assign(args, {
-      duration: duration,
+    args.duration = duration;
+  }
+}
+
+/**
+ * Helper function to add validator to arguments
+ */
+async function addValidatorToArgs(args, argName) {
+  // Fetch available validators from correct endpoint
+  const validatorsData = await get(`/v2/yields/${selectedIntegrationId}/validators`);
+  
+  if (validatorsData && validatorsData.length > 0 && validatorsData[0].validators?.length > 0) {
+    const validators = validatorsData[0].validators;
+    
+    // Format validators for selection
+    const validatorChoices = validators.map(validator => ({
+      name: `${validator.name || validator.address} (${validator.status}) - APR: ${validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'}`,
+      value: validator.address
+    }));
+    
+    // Ask user to select a validator
+    const { selectedValidator }: any = await Enquirer.prompt({
+      type: "autocomplete",
+      name: "selectedValidator",
+      message: "Select a validator:",
+      choices: validatorChoices,
     });
-  }
-  const session = await post(`/v1/actions/${action}`, {
-    integrationId: integrationId,
-    addresses: {
-      address: address,
-      additionalAddresses: additionalAddresses,
-    },
-    args,
-  });
-
-  let lastTx = null;
-  for (const partialTx of session.transactions) {
-    const transactionId = partialTx.id;
-
-    if (partialTx.status === "SKIPPED") {
-      continue;
-    }
-
-    while (true) {
-      if (lastTx !== null && lastTx.network !== partialTx.network) {
-        const stakedBalances = await post(`/v1/yields/${integrationId}/balances`, {
-          addresses: { address, additionalAddresses },
-          args: { validatorAddresses: [args.validatorAddress] },
-        });
-
-        const locked = stakedBalances.find((balance) => balance.type === 'locked')
-
-        if (locked.amount >= session.amount) {
-          console.log('Locked amount available')
-          break
-        } else {
-          console.log("Waiting for funds to arrive in destination chain...");
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
-      } else {
-        console.log('breaking')
-        break;
-      }
-    }
-
-    console.log(
-      `Action ${++partialTx.stepIndex} out of ${session.transactions.length} ${partialTx.type
-      }`
-    );
-
-    const gas = await get(`/v1/transactions/gas/${config.token.network}`);
-
-    let gasArgs = {};
-    if (gas.customisable !== false) {
-      console.log(JSON.stringify(gas));
-
-      const { gasMode }: any = await Enquirer.prompt({
-        type: "select",
-        name: "gasMode",
-        message: `Which gas mode would you like to execute with (${gas.modes.denom})?`,
-        choices: [...gas.modes.values, { name: "custom" }].map((g) => {
-          return { message: g.name, name: g };
-        }),
-      });
-
-      if (gasMode.name === "custom") {
-        console.log("Custom gas mode not supported for now.");
-        throw null;
-      } else {
-        gasArgs = gasMode.gasArgs;
-      }
-    }
-
-    let unsignedTransaction;
-    for (let i = 0; i < 3; i++) {
-      try {
-      unsignedTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
-      break;
-      } catch (error) {
-      console.log(`Attempt ${i + 1} failed. Retrying in 1 second...`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-    if (!unsignedTransaction) {
-      throw new Error("Failed to get unsigned transaction after 3 attempts");
-    }
-
-    const signingWallet = await getSigningWallet(
-      unsignedTransaction.network,
-      walletOptions
-    );
-
-    const signed = await signingWallet.signTransaction(
-      unsignedTransaction.unsignedTransaction
-    );
-
-    const result = await post(`/v1/transactions/${transactionId}/submit`, { signedTransaction: signed, })
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    console.log(result)
-    lastTx = { network: unsignedTransaction.network, result: result };
-    console.log(JSON.stringify(lastTx));
-
-    while (true) {
-      const result = await get(`/v1/transactions/${transactionId}/status`).catch(() => null)
-
-      if (result && result.status === "CONFIRMED") {
-        console.log(result.url);
-        break;
-      } else if (result && result.status === "FAILED") {
-        console.log("TRANSACTION FAILED");
-        break;
-      } else {
-        console.log("Pending...");
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
+    
+    // Add to args based on argument name
+    if (argName === 'validatorAddresses') {
+      args[argName] = [selectedValidator]; // Array for validatorAddresses
+    } else {
+      args[argName] = selectedValidator; // String for validatorAddress
     }
   }
 }
 
-try {
-  main();
-} catch (error) {
-  if (error) {
-    console.log("Script failed");
-    console.log(error);
-  } else {
-    console.log("Script was aborted.");
-  }
-}
+// Execute main function
+main().catch(error => {
+  console.error("Script failed with error:", error);
+});
