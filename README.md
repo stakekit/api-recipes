@@ -1,27 +1,98 @@
 # StakeKit API Recipes
 
-In this repository, you will find a few examples of how to use StakeKit's staking API to build various staking flows.
+This repository contains practical examples demonstrating how to use StakeKit's staking API to implement various staking workflows.
 
-## Getting started
+## Overview
 
-Create a `.env` file in the root folder and fill it in with the appropriate variables.
+The StakeKit API provides a comprehensive set of endpoints to facilitate cryptocurrency staking operations. These examples showcase:
 
-```
+- How to stake tokens using different libraries (ethers and @stakekit/signers)
+- How to manage pending actions for staked assets
+- How to query balances and validate transactions
+
+## Prerequisites
+
+- Node.js and pnpm installed
+- A wallet with sufficient funds for testing (both deposit tokens and gas)
+- StakeKit API key (obtain from [StakeKit dashboard](https://stakek.it/))
+
+## Setup
+
+1. Clone this repository
+2. Create a `.env` file by copying the example:
+
+```bash
 cp .env.example .env
 ```
 
-## Recipes
+3. Fill in your `.env` file with:
+   - `MNEMONIC`: Your wallet's seed phrase
+   - `API_KEY`: Your StakeKit API key
+   - `API_ENDPOINT`: The StakeKit API endpoint (default: https://api-server.steakwallet.fi)
+4. Install dependencies:
 
-To test a staking integration, make sure you have enough funds of the deposit token + and sufficient gas in your wallet to cover gas fees.
-
-With ethers
-
+```bash
+pnpm install
 ```
-> yarn ts-node recipes/ethers-stake.ts
+
+## Available Recipes
+
+### Staking with ethers
+
+A basic example using the ethers.js library to interact with StakeKit's API:
+
+```bash
+pnpm ts-node recipes/ethers-stake.ts
+# or using the npm script
+pnpm ethers-stake
 ```
 
-With @stakekit/signers
+### Staking with @stakekit/signers
 
+A more advanced example using StakeKit's own signers library:
+
+```bash
+pnpm ts-node recipes/stakekit-signers-stake.ts
+# or using the npm script
+pnpm stakekit-signers-stake
 ```
-> yarn ts-node recipes/stakekit-signers-stake.ts
+
+### Managing Pending Actions
+
+Execute pending actions on your staked assets (claim rewards, withdraw positions):
+
+```bash
+pnpm ts-node recipes/stakekit-signers-pending-actions.ts
+# or using the npm script
+pnpm pending-actions
 ```
+
+## Using npm Scripts
+
+For convenience, you can also use the predefined npm scripts to run the recipes:
+
+```bash
+# Run the ethers staking example
+pnpm ethers-stake
+
+# Run the @stakekit/signers staking example
+pnpm stakekit-signers-stake
+
+# Run the pending actions example
+pnpm pending-actions
+```
+
+## Recipe Structure
+
+Each recipe follows a similar workflow:
+
+1. Select a yield/integration to work with
+2. Choose an action (stake/unstake)
+3. Enter required parameters (amount, validators, etc.)
+4. Sign and submit transactions
+5. Monitor transaction status
+
+## API Documentation
+
+For complete StakeKit API documentation, visit:
+[https://docs.stakek.it/](https://docs.stakek.it/)
