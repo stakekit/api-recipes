@@ -48,26 +48,34 @@ async function main() {
       type: "autocomplete",
       name: "integrationId",
       message: "Choose the integration ID you would like to test: ",
-      choices: data.map((integration: { id: string }) => integration.id),
+      choices: data.map((integration: { id: string; name: string; apy: number; token: { symbol: string }}) => ({
+        name: `${integration.name || integration.id} (${integration.token.symbol}) - APY: ${((integration.apy || 1) * 100).toFixed(2)}%`,
+        value: integration.id
+      })),
     });
     
-    // Get integration configuration
-    const config = await get(`/v1/yields/${integrationId}`);
+    // Find selected integration data
+    const selectedIntegration = data.find(integration => integration.id === integrationId);
+    if (!selectedIntegration) {
+      console.error("Selected integration not found");
+      return;
+    }
 
     // Display configuration info
-    console.log("\n=== Configuration === ");
-    console.log("ID:", config.id);
-    console.log(`APY: ${((config.apy || 1) * 100).toFixed(2)}%`);
-    console.log(`Token: ${config.token.symbol} on ${config.token.network}`);
-    console.log("=== Configuration end === \n");
+    console.log("\n=== Integration Info === ");
+    console.log("ID:", selectedIntegration.id);
+    console.log("Name:", selectedIntegration.name || selectedIntegration.id);
+    console.log(`APY: ${((selectedIntegration.apy || 1) * 100).toFixed(2)}%`);
+    console.log(`Token: ${selectedIntegration.token.symbol} on ${selectedIntegration.token.network}`);
+    console.log("=== Integration Info End === \n");
 
     // Get token balance
     const balance = await post(`/v1/tokens/balances`, {
       addresses: [
         {
-          network: config.token.network,
+          network: selectedIntegration.token.network,
           address,
-          tokenAddress: config.token.address,
+          tokenAddress: selectedIntegration.token.address,
         },
       ],
     });
@@ -79,7 +87,7 @@ async function main() {
 
     // Display balances
     console.log("=== Balances ===");
-    console.log("Available", config.token.symbol, balance[0]?.amount || "0");
+    console.log("Available", selectedIntegration.token.symbol, balance[0]?.amount || "0");
     console.log("Staked", stakedBalance);
     console.log("=== Balances end ===\n");
 
@@ -125,7 +133,7 @@ async function main() {
       console.log(`Processing step ${partialTx.stepIndex} of ${session.transactions.length}: ${partialTx.type}`);
 
       // Get gas price options
-      const gas = await get(`/v1/transactions/gas/${config.token.network}`);
+      const gas = await get(`/v1/transactions/gas/${selectedIntegration.token.network}`);
       
       // Select gas mode
       let gasArgs = {};
@@ -190,6 +198,52 @@ async function main() {
     
   } catch (error) {
     console.error("Error executing staking action:", error);
+  }
+}
+
+/**
+ * Collects additional arguments required by the integration
+ */
+async function collectRequiredArguments(config, action, args) {
+  // Get validator address if required
+  if (config.args[action]?.args.validatorAddress) {
+    const { validatorAddress }: any = await Enquirer.prompt({
+      type: "input",
+      name: "validatorAddress",
+      message: "To which validator would you like to stake to?",
+    });
+    args.validatorAddress = validatorAddress;
+  }
+
+  // Get validator addresses if required
+  if (config.args[action]?.args.validatorAddresses) {
+    const { validatorAddresses }: any = await Enquirer.prompt({
+      type: "input",
+      name: "validatorAddresses",
+      message: "To which validator addresses would you like to stake to? (Separated by comma)",
+    });
+    args.validatorAddresses = validatorAddresses.split(",");
+  }
+
+  // Get Tron resource type if required
+  if (config.args[action]?.args.tronResource) {
+    const { tronResource }: any = await Enquirer.prompt({
+      type: "select",
+      name: "tronResource",
+      message: "Which resource would you like to freeze?",
+      choices: ['ENERGY', 'BANDWIDTH'],
+    });
+    args.tronResource = tronResource;
+  }
+
+  // Get duration if required
+  if (config.args[action]?.args.duration) {
+    const { duration }: any = await Enquirer.prompt({
+      type: "input",
+      name: "duration",
+      message: "For how long would you like to stake? (in days)",
+    });
+    args.duration = duration;
   }
 }
 
