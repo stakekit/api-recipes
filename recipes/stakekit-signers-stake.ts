@@ -271,6 +271,31 @@ async function collectRequiredArguments(config, action, args) {
     });
     args.duration = duration;
   }
+
+  // Get fee configuration if required
+  if (config.args[action]?.args.feeConfigurationId) {
+    // Check if options available
+    if (config.args[action].args.feeConfigurationId.options && 
+        config.args[action].args.feeConfigurationId.options.length > 0) {
+      
+      const options = config.args[action].args.feeConfigurationId.options;
+      
+      // Prompt user to select a fee configuration
+      const { selectedFeeConfig }: any = await Enquirer.prompt({
+        type: "select",
+        name: "selectedFeeConfig",
+        message: "Select a fee configuration:",
+        choices: options.map(option => ({
+          name: option,
+          value: option
+        })),
+      });
+      
+      args.feeConfigurationId = selectedFeeConfig;
+    } else if (config.args[action].args.feeConfigurationId.required) {
+      console.warn("Fee configuration is required but no options are provided");
+    }
+  }
 }
 
 /**
