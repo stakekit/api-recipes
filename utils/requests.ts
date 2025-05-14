@@ -14,7 +14,8 @@ const ENDPOINT = process.env.API_ENDPOINT;
  */
 export const post = async (path: string, data: object) => {
   console.log(`...calling POST ${ENDPOINT}${path}...`);
-  
+  console.log(`...with body ${JSON.stringify(data)}...`);
+
   try {
     const response = await fetch(`${ENDPOINT}${path}`, {
       method: "POST",
@@ -24,14 +25,14 @@ export const post = async (path: string, data: object) => {
       },
       body: JSON.stringify(data),
     });
-    
+
     const parsed = await response.json();
-    
+
     if (!response.ok) {
       console.error("API Error:", parsed);
       throw new Error(`Request failed: ${response.status} ${response.statusText}`);
     }
-    
+
     return parsed;
   } catch (error) {
     console.error(`POST request to ${path} failed:`, error);
@@ -48,7 +49,7 @@ export const post = async (path: string, data: object) => {
  */
 export const patch = async (path: string, data: object) => {
   console.log(`...calling PATCH ${ENDPOINT}${path}...`);
-  
+  console.log(`...with body ${JSON.stringify(data)}...`);
   try {
     const response = await fetch(`${ENDPOINT}${path}`, {
       method: "PATCH",
@@ -58,14 +59,14 @@ export const patch = async (path: string, data: object) => {
       },
       body: JSON.stringify(data),
     });
-    
+
     const parsed = await response.json();
-    
+
     if (!response.ok) {
       console.error("API Error:", parsed);
       throw new Error(`Request failed: ${response.status} ${response.statusText}`);
     }
-    
+
     return parsed;
   } catch (error) {
     console.error(`PATCH request to ${path} failed:`, error);
@@ -81,7 +82,7 @@ export const patch = async (path: string, data: object) => {
  */
 export const get = async (path: string) => {
   console.log(`...calling GET ${ENDPOINT}${path}...`);
-  
+
   try {
     const response = await fetch(`${ENDPOINT}${path}`, {
       method: "GET",
@@ -90,14 +91,14 @@ export const get = async (path: string) => {
         "X-API-KEY": process.env.API_KEY,
       },
     });
-    
+
     const parsed = await response.json();
-    
+
     if (!response.ok) {
       console.error("API Error:", parsed);
       throw new Error(`Request failed: ${response.status} ${response.statusText}`);
     }
-    
+
     return parsed;
   } catch (error) {
     console.error(`GET request to ${path} failed:`, error);

@@ -1,0 +1,4 @@
+**/lib
+**/*.json
+src/ethereum/matic-native-staking/validatorCaseMap.ts
+src/evm/bsc-native-staking/credit-contract-addresses.ts
