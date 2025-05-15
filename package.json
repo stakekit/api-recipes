@@ -25,11 +25,7 @@
   "pnpm": {
     "overrides": {
       "punycode": "^2.3.1",
-      "usb": { "optional": true },
-      "@ledgerhq/hw-transport-node-hid": { "optional": true },
-      "@ledgerhq/hw-transport-node-hid-singleton": { "optional": true },
-      "node-hid": { "optional": true },
-      "usb-detection": { "optional": true }
+      "usb": "2.13.0"
     }
   }
 }
