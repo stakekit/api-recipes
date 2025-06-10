@@ -84,7 +84,7 @@ async function main() {
     // Step 5: Initialize wallet with @stakekit/signers
     const walletOptions = {
       mnemonic: process.env.MNEMONIC,
-      walletType: ImportableWallets.MetaMask, // Universal wallet type
+      walletType: ImportableWallets.Polkadot, // Universal wallet type
       index: 0,
     };
 
@@ -377,7 +377,7 @@ async function addValidatorToArgs(args, argName) {
         validator.status
       }) - APR: ${
         validator.apr ? (validator.apr * 100).toFixed(2) + '%' : 'N/A'
-      }`,
+      }${validator.subnetId ? ` - Subnet: ${validator.subnetId}` : ''}`,
       value: validator.address,
     }));
 
@@ -389,11 +389,21 @@ async function addValidatorToArgs(args, argName) {
       choices: validatorChoices,
     });
 
+    // Find the selected validator object to get additional properties
+    const selectedValidatorObj = validators.find(
+      (v) => v.address === selectedValidator,
+    );
+
     // Add to args based on argument name
     if (argName === 'validatorAddresses') {
       args[argName] = [selectedValidator]; // Array for validatorAddresses
     } else {
       args[argName] = selectedValidator; // String for validatorAddress
+    }
+
+    // Add subnet ID if available (same as validator address)
+    if (selectedValidatorObj && selectedValidatorObj.subnetId) {
+      args['subnetId'] = selectedValidatorObj.subnetId;
     }
   }
 }
