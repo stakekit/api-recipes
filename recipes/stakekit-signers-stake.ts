@@ -84,7 +84,7 @@ async function main() {
     // Step 5: Initialize wallet with @stakekit/signers
     const walletOptions = {
       mnemonic: process.env.MNEMONIC,
-      walletType: ImportableWallets.MetaMask, // Universal wallet type
+      walletType: ImportableWallets.Polkadot, // Universal wallet type
       index: 0,
     };
 
