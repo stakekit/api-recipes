@@ -28,42 +28,70 @@ let selectedIntegrationId = '';
  */
 async function main() {
   try {
-    // Step 1: Initialize wallet from mnemonic phrase
+    // // Step 1: Initialize wallet from mnemonic phrase
+    // const wallet = Wallet.fromPhrase(process.env.MNEMONIC);
+    // const address = await wallet.getAddress();
+    // console.log(`Using wallet address: ${address}`);
+    
+    // // Step 2: Get available staking integrations from StakeKit API
+    // const { data } = await get(`/v1/yields/enabled`);
+    
+    // if (!data || data.length === 0) {
+    //   console.error("No enabled yield integrations found");
+    //   return;
+    // }
+
+    // // Step 3: Let user select an integration to use
+    // const { integrationId }: any = await Enquirer.prompt({
+    //   type: "autocomplete",
+    //   name: "integrationId",
+    //   message: "Choose the staking integration you would like to use: ",
+    //   choices: data.map((integration: { id: string; name: string; apy: number; token: { symbol: string }}) => ({
+    //     name: `${integration.name || integration.id} (${integration.token.symbol}) - APY: ${((integration.apy || 1) * 100).toFixed(2)}%`,
+    //     value: integration.id
+    //   })),
+    // });
+    
+    // // Store integration ID globally
+    // selectedIntegrationId = integrationId;
+    
+    // // Find selected integration data
+    // const selectedIntegration = data.find(integration => integration.id === integrationId);
+    // if (!selectedIntegration) {
+    //   console.error("Selected integration not found");
+    //   return;
+    // }
+
+    // // Step 4: Get full integration config for argument inspection
+    // const config = await get(`/v1/yields/${integrationId}`);
+
+    // // Display integration info
+    // console.log("\n=== Integration Info === ");
+    // console.log(`ID: ${selectedIntegration.id}`);
+    // console.log(`Name: ${selectedIntegration.name || selectedIntegration.id}`);
+    // console.log(`APY: ${((selectedIntegration.apy || 1) * 100).toFixed(2)}%`);
+    // console.log(`Token: ${selectedIntegration.token.symbol} on ${selectedIntegration.token.network}`);
+    // console.log("=== Integration Info End === \n");
+
+        // Step 1: Initialize wallet from mnemonic phrase
     const wallet = Wallet.fromPhrase(process.env.MNEMONIC);
     const address = await wallet.getAddress();
     console.log(`Using wallet address: ${address}`);
     
-    // Step 2: Get available staking integrations from StakeKit API
-    const { data } = await get(`/v1/yields/enabled`);
-    
-    if (!data || data.length === 0) {
-      console.error("No enabled yield integrations found");
-      return;
-    }
-
-    // Step 3: Let user select an integration to use
-    const { integrationId }: any = await Enquirer.prompt({
-      type: "autocomplete",
-      name: "integrationId",
-      message: "Choose the staking integration you would like to use: ",
-      choices: data.map((integration: { id: string; name: string; apy: number; token: { symbol: string }}) => ({
-        name: `${integration.name || integration.id} (${integration.token.symbol}) - APY: ${((integration.apy || 1) * 100).toFixed(2)}%`,
-        value: integration.id
-      })),
-    });
-    
-    // Store integration ID globally
+    // Step 2: Use specific integration ID directly
+    const integrationId = 'base-usdc-smusdc-0x616a4e1db48e22028f6bbf20444cd3b8e3273738-4626-vault';
     selectedIntegrationId = integrationId;
     
-    // Find selected integration data
-    const selectedIntegration = data.find(integration => integration.id === integrationId);
+    // Step 3: Get specific integration data
+    const selectedIntegration = await get(`/v1/yields/${integrationId}`);
+    
     if (!selectedIntegration) {
-      console.error("Selected integration not found");
+      console.error("Integration not found");
       return;
     }
 
     // Step 4: Get full integration config for argument inspection
-    const config = await get(`/v1/yields/${integrationId}`);
+    const config = selectedIntegration;
 
     // Display integration info
     console.log("\n=== Integration Info === ");
@@ -74,13 +102,45 @@ async function main() {
     console.log("=== Integration Info End === \n");
 
     // Step 5: Get token balance and staked balance
+    let tokenToUse = selectedIntegration.token;
+
+    // Debug: Check the structure of the integration
+    // console.log("Selected integration structure:", JSON.stringify(selectedIntegration, null, 2));
+    
+    // Check if integration has multiple tokens and let user select
+    if (selectedIntegration.tokens && selectedIntegration.tokens.length > 1) {
+      console.log("Available tokens:", JSON.stringify(selectedIntegration.tokens, null, 2));
+
+      const choices = selectedIntegration.tokens.map((token: any, index: number) => ({
+        name: `${token.symbol} on ${token.network}`,
+        value: index
+      }));
+
+      console.log("Choices:", choices);
+
+      const { selectedToken }: any = await Enquirer.prompt({
+        type: "autocomplete",
+        name: "selectedToken",
+        message: "This integration supports multiple tokens. Which would you like to use?",
+        choices: selectedIntegration.tokens.map((token: any, index: number) => ({
+          name: `${token.symbol} on ${token.network}`,
+          value: index
+        })),
+      });
+      
+      console.log("Selected token index:", selectedToken);
+      tokenToUse = selectedIntegration.tokens[selectedToken];
+    }
+
+    console.log("Token to use:", JSON.stringify(tokenToUse, null, 2));
+
     const [balance, stakedBalance] = await Promise.all([
       post(`/v1/tokens/balances`, {
         addresses: [
           {
-            network: selectedIntegration.token.network,
+            network: tokenToUse.network,
             address,
-            tokenAddress: selectedIntegration.token.address,
+            tokenAddress: tokenToUse.address,
           },
         ],
       }),
@@ -91,9 +151,9 @@ async function main() {
 
     // Display balances
     console.log("=== Balances ===");
-    console.log(`Available ${selectedIntegration.token.symbol}: ${balance[0]?.amount || "0"}`);
+    console.log(`Available ${tokenToUse.symbol}: ${balance[0]?.amount || "0"}`);
     console.log(`Staked: ${JSON.stringify(stakedBalance)}`);
-    console.log("=== Balances End ===\n");
+    console.log("=== Integration Info End ===\n");
 
     // Step 6: Select action (stake/unstake)
     const { action }: any = await Enquirer.prompt({
@@ -111,10 +171,17 @@ async function main() {
     });
 
     // Prepare arguments object for API call
-    const args = { amount };
+    const args: any = { amount };
+
+    // Add inputToken if a specific token was selected
+    if (selectedIntegration.tokens && selectedIntegration.tokens.length > 1) {
+      args.inputToken = tokenToUse;
+    }
 
     // Step 8: Get additional required arguments (validators, durations, etc.)
     await collectRequiredArguments(config, action, args);
+
+    console.log("Final args being sent:", JSON.stringify(args, null, 2));
 
     // Step 9: Create action session
     console.log(`\nCreating ${action} action session...`);
@@ -140,15 +207,21 @@ async function main() {
       
       console.log(`Processing step ${partialTx.stepIndex + 1} of ${session.transactions.length}: ${partialTx.type}`);
 
-      // Step 10.1: Get gas price options
-      const gas = await get(`/v1/transactions/gas/${selectedIntegration.token.network}`);
+      // Step 10.1: Prepare transaction first to get the actual network
+      const transaction = await patch(`/v1/transactions/${transactionId}`, {});
+      const actualNetwork = transaction.network;
       
-      // Step 10.2: Select gas mode
+      console.log(`Transaction will execute on network: ${actualNetwork}`);
+
+      // Step 10.2: Get gas price options for the actual network
+      const gas = await get(`/v1/transactions/gas/${actualNetwork}`);
+      
+      // Step 10.3: Select gas mode
       let gasArgs = {};
       const { gasMode }: any = await Enquirer.prompt({
         type: "select",
         name: "gasMode",
-        message: `Which gas mode would you like to use (${gas.modes?.denom || 'default'})?`,
+        message: `Which gas mode would you like to use on ${actualNetwork} (${gas.modes?.denom || 'default'})?`,
         choices: [...(gas.modes?.values || []), { name: "custom" }].map((g) => ({
           message: g.name, 
           name: g 
@@ -162,27 +235,27 @@ async function main() {
         continue;
       }
 
-      // Step 10.3: Prepare transaction
-      const transaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
+      // Step 10.4: Re-prepare transaction with gas settings
+      const finalTransaction = await patch(`/v1/transactions/${transactionId}`, gasArgs);
 
-      // Step 10.4: Sign transaction with ethers.js wallet
+      // Step 10.5: Sign transaction with ethers.js wallet
       console.log("Signing transaction...");
       const signed = await wallet.signTransaction(
-        JSON.parse(transaction.unsignedTransaction)
+        JSON.parse(finalTransaction.unsignedTransaction)
       );
 
-      // Step 10.5: Submit signed transaction
+      // Step 10.6: Submit signed transaction
       console.log("Submitting transaction...");
       const result = await post(`/v1/transactions/${transactionId}/submit`, {
         signedTransaction: signed,
       });
 
       console.log("Transaction submitted:", JSON.stringify({
-        network: transaction.network,
+        network: finalTransaction.network,
         txId: result.id
       }, null, 2));
 
-      // Step 10.6: Wait for transaction confirmation
+      // Step 10.7: Wait for transaction confirmation
       console.log("Waiting for transaction confirmation...");
       let confirmed = false;
       
@@ -245,6 +318,33 @@ async function collectRequiredArguments(config, action, args) {
       message: "For how long would you like to stake? (in days)",
     });
     args.duration = duration;
+  }
+
+  // Get fee configuration if required (for LayerZero)
+  if (config.args[action]?.args.feeConfigurationId) {
+    console.log("Fee configuration required for LayerZero cross-chain routing");
+    
+    // Check if options available
+    if (
+      config.args[action].args.feeConfigurationId.options &&
+      config.args[action].args.feeConfigurationId.options.length > 0
+    ) {
+      const options = config.args[action].args.feeConfigurationId.options;
+      console.log("Available fee configurations:", options);
+
+      // Prompt user to select a fee configuration
+      const { selectedFeeConfig }: any = await Enquirer.prompt({
+        type: "select",
+        name: "selectedFeeConfig",
+        message: "Select a LayerZero fee tier (required for cross-chain routing):",
+        choices: options.map((option: string) => option),  // Just use the UUID directly
+      });
+
+      args.feeConfigurationId = selectedFeeConfig;
+      console.log(`Selected fee configuration: ${selectedFeeConfig}`);
+    } else {
+      console.log("No fee configuration options found - this may cause the transaction to fail");
+    }
   }
 }
 
