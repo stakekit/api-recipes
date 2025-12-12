@@ -7,6 +7,7 @@
   },
   "scripts": {
     "ethers-stake": "ts-node recipes/ethers-stake.ts",
+    "test-lz": "ts-node recipes/test-lz.ts",
     "stakekit-signers-stake": "ts-node recipes/stakekit-signers-stake.ts",
     "pending-actions": "ts-node recipes/stakekit-signers-pending-actions.ts"
   },

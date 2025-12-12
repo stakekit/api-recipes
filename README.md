@@ -47,6 +47,16 @@ pnpm ts-node recipes/ethers-stake.ts
 pnpm ethers-stake
 ```
 
+### Test LayerZero
+
+Using the ethers.js library to interact with StakeKit's API to test layerzero-enabled yieldflows:
+
+```bash
+pnpm ts-node recipes/test-lz.ts
+# or using the npm script
+pnpm test-lz
+```
+
 ### Staking with @stakekit/signers
 
 A more advanced example using StakeKit's own signers library:
