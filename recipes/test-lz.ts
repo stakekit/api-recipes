@@ -34,8 +34,8 @@ async function main() {
     console.log(`Using wallet address: ${address}`);
     
     // Step 2: Use specific integration ID directly
-    // const integrationId = 'base-weth-mweth-0xa0e430870c4604ccfc7b38ca7845b1ff653d0ff1-4626-vault';
-        const integrationId = 'base-usdc-smusdc-0x616a4e1db48e22028f6bbf20444cd3b8e3273738-4626-vault';
+    const integrationId = 'base-weth-mweth-0xa0e430870c4604ccfc7b38ca7845b1ff653d0ff1-4626-vault';
+    // const integrationId = 'base-usdc-smusdc-0x616a4e1db48e22028f6bbf20444cd3b8e3273738-4626-vault';
 
     selectedIntegrationId = integrationId;
     
