@@ -1,20 +1,26 @@
-# StakeKit API Recipes
+# Yield.xyz API Recipes
 
-This repository contains practical examples demonstrating how to use StakeKit's staking API to implement various staking workflows.
+Practical code examples demonstrating how to interact with Yield.xyz APIs for DeFi operations.
 
 ## Overview
 
-The StakeKit API provides a comprehensive set of endpoints to facilitate cryptocurrency staking operations. These examples showcase:
+Yield.xyz provides unified APIs for decentralized finance:
 
-- How to stake tokens using different libraries (ethers and @stakekit/signers)
-- How to manage pending actions for staked assets
-- How to query balances and validate transactions
+- **Perps API** - Trade perpetual futures with leverage across multiple providers
+- **Yields API** - Stake and earn rewards across multiple networks and protocols
+
+These recipes demonstrate:
+
+- Querying markets, positions, and balances
+- Executing trades and managing positions
+- Signing and submitting transactions with ethers.js
+- Building interactive CLI applications
 
 ## Prerequisites
 
-- Node.js and pnpm installed
-- A wallet with sufficient funds for testing (both deposit tokens and gas)
-- StakeKit API key (obtain from [StakeKit dashboard](https://stakek.it/))
+- Node.js (v16+) and pnpm installed
+- Wallet mnemonic phrase
+- Yield.xyz API key (obtain from [Yield.xyz dashboard](https://app.yield.xyz))
 
 ## Setup
 
@@ -26,9 +32,9 @@ cp .env.example .env
 ```
 
 3. Fill in your `.env` file with:
-   - `MNEMONIC`: Your wallet's seed phrase
-   - `API_KEY`: Your StakeKit API key
-   - `API_ENDPOINT`: The StakeKit API endpoint (default: https://api.stakek.it)
+   - `MNEMONIC`: Your wallet's seed phrase (12 or 24 words)
+   - `PERPS_API_KEY`: Your Yield.xyz API key (for perps)
+   - `YIELDS_API_KEY`: Your Yield.xyz API key (for yields)
 4. Install dependencies:
 
 ```bash
@@ -37,47 +43,85 @@ pnpm install
 
 ## Available Recipes
 
-### Staking with ethers
+### Perps Trading
 
-A basic example using the ethers.js library to interact with StakeKit's API:
-
-```bash
-pnpm ts-node recipes/ethers-stake.ts
-# or using the npm script
-pnpm ethers-stake
-```
-
-### Staking with @stakekit/signers
-
-A more advanced example using StakeKit's own signers library:
+Interactive perpetual futures trading with full position management:
 
 ```bash
-pnpm ts-node recipes/stakekit-signers-stake.ts
-# or using the npm script
-pnpm stakekit-signers-stake
+pnpm perps
 ```
 
-### Managing Pending Actions
+**Features:**
+- View account balances and margin utilization
+- Browse markets with real-time prices and funding rates
+- Execute leveraged trades (long/short positions)
+- Manage existing positions (close, adjust leverage, set TP/SL)
+- View and cancel orders
+- Deposit and withdraw collateral
+- Schema-driven UI that adapts to API changes
 
-Execute pending actions on your staked assets (claim rewards, withdraw positions):
+**Supported Providers:**
+- Hyperliquid
+- More providers coming soon
+
+### Yields / Staking
+
+Interactive staking and yield farming interface:
 
 ```bash
-pnpm ts-node recipes/stakekit-signers-pending-actions.ts
-# or using the npm script
-pnpm pending-actions
+pnpm yields
 ```
 
-## Recipe Structure
+**Features:**
+- Browse yield opportunities across multiple networks
+- View APY rates and token information
+- Enter yield positions (staking, liquid staking, etc.)
+- Manage existing positions
+- Execute pending actions (claim rewards, unstake, etc.)
+- Schema-driven UI that adapts to each protocol's requirements
 
-Each recipe follows a similar workflow:
+**Supported Networks & Protocols:**
+- Ethereum (Lido, Rocket Pool, etc.)
+- Cosmos chains
+- Polkadot
+- Many more networks and providers
 
-1. Select a yield/integration to work with
-2. Choose an action (stake/unstake)
-3. Enter required parameters (amount, validators, etc.)
-4. Sign and submit transactions
-5. Monitor transaction status
+## How It Works
+
+All recipes follow an interactive, schema-driven approach:
+
+1. **Connect** - API key and wallet authentication
+2. **Discover** - Browse available markets, providers, or opportunities
+3. **Execute** - Perform actions with real-time argument collection
+4. **Sign** - Sign transactions locally with your wallet
+5. **Submit** - Submit to the blockchain or provider
+
+The recipes automatically adapt to API changes using schema-driven UI generation.
 
 ## API Documentation
 
-For complete StakeKit API documentation, visit:
-[https://docs.stakek.it/](https://docs.stakek.it/)
+For complete API documentation and integration guides:
+- **Perps API**: [docs.yield.xyz](https://docs.yield.xyz) - Perpetual futures trading
+- **Yields API**: [docs.yield.xyz](https://docs.yield.xyz) - Staking and yield opportunities
+
+## Development
+
+```bash
+# Build TypeScript
+pnpm build
+
+# Format code
+pnpm format
+
+# Clean build artifacts
+pnpm clean
+```
+
+## Security
+
+⚠️ **Never commit sensitive data**:
+- Keep your `.env` file private
+- Never share your mnemonic phrase
+- Protect your API keys
+
+Use `.env.example` as a template only.
