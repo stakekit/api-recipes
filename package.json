@@ -9,6 +9,7 @@
     "build": "tsc",
     "perps": "ts-node recipes/perps.ts",
     "yields": "ts-node recipes/yields.ts",
+    "lint": "biome lint .",
     "format": "biome format --write .",
     "clean": "rm -rf lib"
   },
