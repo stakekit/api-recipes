@@ -261,19 +261,19 @@ async function promptForArguments(
         initial: field.default,
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
-          const num = parseFloat(input);
-          if (isNaN(num)) return "Must be a valid number";
-          if (field.minimum && num < parseFloat(field.minimum)) {
+          const num = Number.parseFloat(input);
+          if (Number.isNaN(num)) return "Must be a valid number";
+          if (field.minimum && num < Number.parseFloat(field.minimum)) {
             return `Must be at least ${field.minimum}`;
           }
-          if (field.maximum && num > parseFloat(field.maximum)) {
+          if (field.maximum && num > Number.parseFloat(field.maximum)) {
             return `Must be at most ${field.maximum}`;
           }
           return true;
         },
       } as any);
       if (response.value) {
-        result[field.name] = parseFloat(response.value);
+        result[field.name] = Number.parseFloat(response.value);
       }
     } else if (field.type === "boolean") {
       const response: any = await Enquirer.prompt({
@@ -422,7 +422,7 @@ async function main() {
       return;
     }
 
-    const walletIndex = parseInt(process.env.WALLET_INDEX || "0");
+    const walletIndex = Number.parseInt(process.env.WALLET_INDEX || "0");
     const derivationPath = `m/44'/60'/0'/0/${walletIndex}`;
     const wallet = HDNodeWallet.fromPhrase(mnemonic, undefined, derivationPath);
     const address = wallet.address;
@@ -532,7 +532,7 @@ async function showYieldMenu(
       console.error("\nError:", error?.message || error);
     }
 
-    console.log("\n" + "─".repeat(60) + "\n");
+    console.log(`\n${"─".repeat(60)}\n`);
   }
 }
 
@@ -564,7 +564,7 @@ async function enterYield(
 
   console.log("\nAction Summary:");
   console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
-  console.log(`  Action: Enter`);
+  console.log("  Action: Enter");
   for (const [key, value] of Object.entries(args)) {
     console.log(`  ${key}: ${value}`);
   }
@@ -615,7 +615,7 @@ async function exitYield(
 
   console.log("\nAction Summary:");
   console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
-  console.log(`  Action: Exit`);
+  console.log("  Action: Exit");
   for (const [key, value] of Object.entries(args)) {
     console.log(`  ${key}: ${value}`);
   }

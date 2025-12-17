@@ -36,7 +36,7 @@ export async function request<T>(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`API Error Response:`, errorText);
+      console.error("API Error Response:", errorText);
 
       try {
         const errorJson = JSON.parse(errorText);
