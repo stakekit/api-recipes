@@ -1,108 +1,54 @@
-import * as dotenv from "dotenv";
-import fetch from "node-fetch";
-
-dotenv.config();
-
-const ENDPOINT = process.env.API_ENDPOINT;
+import "cross-fetch/polyfill";
 
 /**
- * Makes a POST request to the StakeKit API
- * @param path - API endpoint path
- * @param data - Request body data
- * @returns Promise with the response data
- * @throws Error if the request fails
+ * Generic HTTP request helper with logging
  */
-export const post = async (path: string, data: object) => {
-  console.log(`...calling POST ${ENDPOINT}${path}...`);
-  console.log(`...with body ${JSON.stringify(data)}...`);
+export async function request<T>(
+  baseUrl: string,
+  apiKey: string,
+  method: string,
+  path: string,
+  body?: any,
+): Promise<T> {
+  const url = `${baseUrl}${path}`;
+
+  console.log(`...calling ${method} ${url}...`);
+  if (body) {
+    console.log(`...with body ${JSON.stringify(body)}...`);
+  }
+
+  const headers: Record<string, string> = {
+    "x-api-key": apiKey,
+    "Content-Type": "application/json",
+  };
+
+  const options: RequestInit = {
+    method,
+    headers,
+  };
+
+  if (body) {
+    options.body = JSON.stringify(body);
+  }
 
   try {
-    const response = await fetch(`${ENDPOINT}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": process.env.API_KEY,
-      },
-      body: JSON.stringify(data),
-    });
-
-    const parsed = await response.json();
+    const response = await fetch(url, options);
 
     if (!response.ok) {
-      console.error("API Error:", parsed);
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      console.error("API Error Response:", errorText);
+
+      try {
+        const errorJson = JSON.parse(errorText);
+        throw new Error(`${JSON.stringify(errorJson)} (Status: ${response.status})`);
+      } catch (parseError) {
+        throw new Error(`${errorText} (Status: ${response.status})`);
+      }
     }
 
-    return parsed;
+    return response.json();
   } catch (error) {
-    console.error(`POST request to ${path} failed:`, error);
+    console.error(`${method} request to ${path} failed:`, error);
     throw error;
   }
-};
-
-/**
- * Makes a PATCH request to the StakeKit API
- * @param path - API endpoint path
- * @param data - Request body data
- * @returns Promise with the response data
- * @throws Error if the request fails
- */
-export const patch = async (path: string, data: object) => {
-  console.log(`...calling PATCH ${ENDPOINT}${path}...`);
-  console.log(`...with body ${JSON.stringify(data)}...`);
-  try {
-    const response = await fetch(`${ENDPOINT}${path}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": process.env.API_KEY,
-      },
-      body: JSON.stringify(data),
-    });
-
-    const parsed = await response.json();
-
-    if (!response.ok) {
-      console.error("API Error:", parsed);
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
-    }
-
-    return parsed;
-  } catch (error) {
-    console.error(`PATCH request to ${path} failed:`, error);
-    throw error;
-  }
-};
-
-/**
- * Makes a GET request to the StakeKit API
- * @param path - API endpoint path
- * @returns Promise with the response data
- * @throws Error if the request fails
- */
-export const get = async (path: string) => {
-  console.log(`...calling GET ${ENDPOINT}${path}...`);
-
-  try {
-    const response = await fetch(`${ENDPOINT}${path}`, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "X-API-KEY": process.env.API_KEY,
-      },
-    });
-
-    const parsed = await response.json();
-
-    if (!response.ok) {
-      console.error("API Error:", parsed);
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
-    }
-
-    return parsed;
-  } catch (error) {
-    console.error(`GET request to ${path} failed:`, error);
-    throw error;
-  }
-};
-
+}
