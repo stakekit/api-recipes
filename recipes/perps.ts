@@ -67,11 +67,40 @@ enum SigningFormat {
   COSMOS_TRANSACTION = "COSMOS_TRANSACTION",
 }
 
+interface TokenDto {
+  symbol: string;
+  name: string;
+  decimals: number;
+  address?: string;
+  logoURI?: string;
+}
+
+interface TokenIdentifierDto {
+  network: string;
+  address?: string;
+}
+
+interface ActionArguments {
+  marketId?: string;
+  side?: "long" | "short";
+  amount?: string;
+  size?: string;
+  leverage?: number;
+  marginMode?: "cross" | "isolated";
+  limitPrice?: number;
+  stopLossPrice?: number;
+  takeProfitPrice?: number;
+  orderId?: string;
+  assetIndex?: number;
+  fromToken?: TokenIdentifierDto;
+  [key: string]: any;
+}
+
 interface PerpMarket {
   id: string;
   providerId: string;
-  baseAsset: string;
-  quoteAsset: string;
+  baseAsset: TokenDto;
+  quoteAsset: TokenDto;
   leverageRange: [number, number];
   supportedMarginModes: ("isolated" | "cross")[];
   markPrice: number;
@@ -160,10 +189,11 @@ interface ApiTransaction {
   type: string;
   status: PerpTransactionStatus;
   address: string;
-  args?: any;
+  args?: ActionArguments;
   signingFormat?: SigningFormat;
   signablePayload?: string | Record<string, any>;
   transactionHash?: string;
+  link?: string;
   details?: {
     providerId?: string;
     fillPrice?: number;
@@ -385,7 +415,6 @@ async function promptFromSchema(
 async function signTransaction(tx: ApiTransaction, wallet: HDNodeWallet): Promise<string> {
   if (!tx.signablePayload) throw new Error("Nothing to sign");
 
-  // EIP-712 typed data
   if (tx.signingFormat === SigningFormat.EIP712_TYPED_DATA) {
     const { domain, types, message } = tx.signablePayload as any;
     return wallet.signTypedData(domain, types, message);
@@ -422,16 +451,34 @@ async function processTransactions(
 
       if (result.status === PerpTransactionStatus.CONFIRMED) {
         console.log(`Confirmed immediately (Transaction ID: ${tx.id})`);
+        if (result.transactionHash) {
+          console.log(`   Hash: ${result.transactionHash}`);
+        }
+        if (result.link) {
+          console.log(`   Link: ${result.link}`);
+        }
         if (result.details && result.details.providerId === "hyperliquid") {
           if ("fillPrice" in result.details && result.details.fillPrice) {
             console.log(`   Fill Price: $${result.details.fillPrice}`);
           }
         }
       } else if (result.status === PerpTransactionStatus.BROADCASTED) {
-        console.log(`Order placed (Transaction ID: ${tx.id}, Hash: ${result.transactionHash})`);
+        console.log(`Order placed (Transaction ID: ${tx.id})`);
+        if (result.transactionHash) {
+          console.log(`   Hash: ${result.transactionHash}`);
+        }
+        if (result.link) {
+          console.log(`   Link: ${result.link}`);
+        }
         console.log("   Status: On the order book");
       } else {
-        console.log(`Transaction ID: ${tx.id}, Hash: ${result.transactionHash}`);
+        console.log(`Transaction ID: ${tx.id}`);
+        if (result.transactionHash) {
+          console.log(`   Hash: ${result.transactionHash}`);
+        }
+        if (result.link) {
+          console.log(`   Link: ${result.link}`);
+        }
       }
     } catch (error: any) {
       console.error(`Failed to submit transaction ${tx.id}: ${error.message}`);
@@ -898,7 +945,7 @@ async function showMarkets(apiClient: PerpsApiClient, providerId: string): Promi
   for (const market of topMarkets) {
     console.log(
       `${
-        market.baseAsset.padEnd(10) +
+        market.baseAsset.symbol.padEnd(10) +
         `$${market.markPrice.toFixed(2)}`.padEnd(15) +
         `${market.leverageRange[0]}-${market.leverageRange[1]}x`.padEnd(12) +
         `$${(market.dailyVolume24h / 1000000).toFixed(2)}M`.padEnd(15)
@@ -929,7 +976,7 @@ async function executeTrade(
   const topMarkets = markets.sort((a, b) => b.dailyVolume24h - a.dailyVolume24h).slice(0, 20);
 
   const choices = topMarkets.map((m, idx) => ({
-    display: `${m.baseAsset} ($${m.markPrice.toFixed(2)}) - ${m.leverageRange[1]}x max`,
+    display: `${m.baseAsset.symbol} ($${m.markPrice.toFixed(2)}) - ${m.leverageRange[1]}x max`,
     market: m,
     index: idx,
   }));
@@ -1075,7 +1122,8 @@ async function executeAction(
   for (const [key, value] of Object.entries(actionArgs)) {
     if (value !== undefined && key !== "marketId") {
       const formattedKey = key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase());
-      console.log(`  ${formattedKey}: ${value}`);
+      const displayValue = typeof value === "object" ? JSON.stringify(value) : value;
+      console.log(`  ${formattedKey}: ${displayValue}`);
     }
   }
   console.log("");
