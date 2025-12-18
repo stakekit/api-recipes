@@ -1059,6 +1059,9 @@ async function executeTrade(
 
   console.log("\nCreating action via API...\n");
   const actionResponse = await apiClient.createAction(providerId, actionType, address, args);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await processTransactions(actionResponse.transactions, wallet, apiClient);
   console.log("\nDone!\n");
 }
@@ -1141,6 +1144,9 @@ async function executeAction(
 
   console.log("\nCreating action via API...\n");
   const actionResponse = await apiClient.createAction(providerId, actionType, address, actionArgs);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await processTransactions(actionResponse.transactions, wallet, apiClient);
   console.log("\nAction completed successfully!\n");
 }

@@ -583,6 +583,9 @@ async function enterYield(
 
   console.log("\nCreating action...\n");
   const action = await apiClient.enterYield(yieldInfo.id, address, args);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await signAndSubmitTransactions(action.transactions, wallet, apiClient);
   console.log("\nYield entered successfully!\n");
 }
@@ -634,6 +637,9 @@ async function exitYield(
 
   console.log("\nCreating action...\n");
   const action = await apiClient.exitYield(yieldInfo.id, address, args);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await signAndSubmitTransactions(action.transactions, wallet, apiClient);
   console.log("\nYield exited successfully!\n");
 }
@@ -758,6 +764,9 @@ async function viewAndManageBalances(
     pendingAction.passthrough,
     args,
   );
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await signAndSubmitTransactions(action.transactions, wallet, apiClient);
   console.log("\nAction completed successfully!\n");
 }
