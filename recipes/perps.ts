@@ -435,7 +435,7 @@ async function processTransactions(
 ): Promise<void> {
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
-    
+
     if (tx.status === PerpTransactionStatus.CONFIRMED) continue;
 
     console.log(`${tx.type} (Transaction ID: ${tx.id})...`);
@@ -953,7 +953,7 @@ async function showMarkets(markets: PerpMarket[]): Promise<void> {
   console.log("\nMarkets\n");
   console.log(`Displaying ${markets.length} markets\n`);
 
-  const sortedMarkets = markets.sort(
+  const sortedMarkets = [...markets].sort(
     (a: PerpMarket, b: PerpMarket) => b.dailyVolume24h - a.dailyVolume24h,
   );
 
@@ -1000,7 +1000,7 @@ async function executeTrade(
   ]);
 
   // Sort markets by volume for better defaults in autocomplete
-  const sortedMarkets = markets.sort((a, b) => b.dailyVolume24h - a.dailyVolume24h);
+  const sortedMarkets = [...markets].sort((a, b) => b.dailyVolume24h - a.dailyVolume24h);
 
   const choices = sortedMarkets.map((m) => ({
     display: `${m.baseAsset.symbol} ($${m.markPrice.toFixed(2)}) - ${m.leverageRange[1]}x max`,
