@@ -232,21 +232,23 @@ class PerpsApiClient {
     return this.makeRequest<any>("GET", `/v1/providers/${providerId}`);
   }
 
-  async getMarkets(providerId?: string, limit?: number, offset?: number): Promise<PerpMarket[]> {
+  async getMarkets(
+    providerId?: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<{ items: PerpMarket[]; total: number; offset: number; limit: number }> {
     const params = new URLSearchParams();
     if (providerId) params.append("providerId", providerId);
     if (limit) params.append("limit", limit.toString());
     if (offset) params.append("offset", offset.toString());
 
     const query = params.toString();
-    const response = await this.makeRequest<{
+    return this.makeRequest<{
       items: PerpMarket[];
       total: number;
       offset: number;
       limit: number;
     }>("GET", `/v1/markets${query ? `?${query}` : ""}`);
-
-    return response.items;
   }
 
   async getPositions(providerId: string, address: string): Promise<PerpPosition[]> {
@@ -434,7 +436,7 @@ async function processTransactions(
 ): Promise<void> {
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
-    
+
     if (tx.status === PerpTransactionStatus.CONFIRMED) continue;
 
     console.log(`${tx.type} (Transaction ID: ${tx.id})...`);
@@ -556,6 +558,10 @@ async function main() {
       providerId = result.providerId;
     }
 
+    console.log("Fetching markets...\n");
+    const markets = await fetchAllMarkets(apiClient, providerId);
+    console.log(`Loaded ${markets.length} markets\n`);
+
     while (true) {
       const mainChoice = await showMainMenu(apiClient, providerId, address);
 
@@ -573,10 +579,10 @@ async function main() {
             await showPositions(apiClient, providerId, address, wallet);
             break;
           case "markets":
-            await showMarkets(apiClient, providerId);
+            await showMarkets(markets);
             break;
           case "trade":
-            await executeTrade(apiClient, providerId, address, wallet);
+            await executeTrade(apiClient, providerId, address, wallet, markets);
             break;
           case "fund":
             await executeAccountAction(
@@ -925,14 +931,35 @@ async function manageOrder(
   });
 }
 
-async function showMarkets(apiClient: PerpsApiClient, providerId: string): Promise<void> {
+async function fetchAllMarkets(
+  apiClient: PerpsApiClient,
+  providerId: string,
+): Promise<PerpMarket[]> {
+  const limit = 100;
+  const firstPage = await apiClient.getMarkets(providerId, limit, 0);
+  const totalPages = Math.ceil(firstPage.total / limit);
+
+  if (totalPages === 1) {
+    return firstPage.items;
+  }
+
+  const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) =>
+    apiClient.getMarkets(providerId, limit, (i + 1) * limit),
+  );
+
+  const results = await Promise.all(remainingPages);
+  return [firstPage, ...results].flatMap((r) => r.items);
+}
+
+async function showMarkets(markets: PerpMarket[]): Promise<void> {
   console.log("\nMarkets\n");
+  console.log(`Displaying ${markets.length} markets\n`);
 
-  const markets = await apiClient.getMarkets(providerId);
+  const sortedMarkets = markets.sort(
+    (a: PerpMarket, b: PerpMarket) => b.dailyVolume24h - a.dailyVolume24h,
+  );
 
-  console.log(`Found ${markets.length} markets\n`);
-
-  console.log("Top 20 Markets (by volume):");
+  console.log("Markets (sorted by volume):");
   console.log("─".repeat(120));
   console.log(
     `${
@@ -944,11 +971,7 @@ async function showMarkets(apiClient: PerpsApiClient, providerId: string): Promi
   );
   console.log("─".repeat(120));
 
-  const topMarkets = markets
-    .sort((a: PerpMarket, b: PerpMarket) => b.dailyVolume24h - a.dailyVolume24h)
-    .slice(0, 20);
-
-  for (const market of topMarkets) {
+  for (const market of sortedMarkets) {
     console.log(
       `${
         market.baseAsset.symbol.padEnd(10) +
@@ -968,29 +991,28 @@ async function executeTrade(
   providerId: string,
   address: string,
   wallet: HDNodeWallet,
+  markets: PerpMarket[],
 ): Promise<void> {
   console.log("\nExecute Trade\n");
 
-  console.log("Fetching markets...\n");
-  const [markets, schemas, positions] = await Promise.all([
-    apiClient.getMarkets(providerId),
+  console.log("Fetching data...\n");
+  const [schemas, positions] = await Promise.all([
     apiClient.getArguments(providerId),
     apiClient.getPositions(providerId, address),
   ]);
 
-  // Select market
-  const topMarkets = markets.sort((a, b) => b.dailyVolume24h - a.dailyVolume24h).slice(0, 20);
+  // Sort markets by volume for better defaults in autocomplete
+  const sortedMarkets = markets.sort((a, b) => b.dailyVolume24h - a.dailyVolume24h);
 
-  const choices = topMarkets.map((m, idx) => ({
+  const choices = sortedMarkets.map((m) => ({
     display: `${m.baseAsset.symbol} ($${m.markPrice.toFixed(2)}) - ${m.leverageRange[1]}x max`,
     market: m,
-    index: idx,
   }));
 
   const { selection }: any = await Enquirer.prompt({
     type: "autocomplete",
     name: "selection",
-    message: "Select market:",
+    message: "Select market (type to search):",
     choices: choices.map((c) => c.display),
   });
 
