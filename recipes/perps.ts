@@ -435,7 +435,7 @@ async function processTransactions(
 ): Promise<void> {
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
-
+    
     if (tx.status === PerpTransactionStatus.CONFIRMED) continue;
 
     console.log(`${tx.type} (Transaction ID: ${tx.id})...`);
