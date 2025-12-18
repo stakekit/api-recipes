@@ -148,12 +148,11 @@ interface PerpOrder {
 
 interface PerpBalance {
   providerId: string;
-  collateralAsset: string;
+  collateral: TokenDto;
   accountValue: number;
   usedMargin: number;
   availableBalance: number;
   unrealizedPnl: number;
-  positionsCount: number;
 }
 
 interface ArgumentSchemaProperty {
@@ -661,7 +660,7 @@ async function showMainMenu(
   console.log("Account Summary");
   console.log("─".repeat(60));
   console.log(
-    `Account Value: $${balance.accountValue.toLocaleString()} ${balance.collateralAsset}`,
+    `Account Value: $${balance.accountValue.toLocaleString()} ${balance.collateral.symbol}`,
   );
   console.log(
     `Available: $${balance.availableBalance.toLocaleString()} | Used: $${balance.usedMargin.toLocaleString()}`,
@@ -713,12 +712,11 @@ async function showBalance(
 
   console.log("Account Summary:");
   console.log("─".repeat(50));
-  console.log(`Collateral Asset: ${balance.collateralAsset}`);
+  console.log(`Collateral: ${balance.collateral.symbol} (${balance.collateral.name})`);
   console.log(`Account Value: $${balance.accountValue.toLocaleString()}`);
   console.log(`Used Margin: $${balance.usedMargin.toLocaleString()}`);
   console.log(`Available Balance: $${balance.availableBalance.toLocaleString()}`);
   console.log(`Unrealized PnL: ${pnlPrefix}$${Math.abs(balance.unrealizedPnl).toFixed(2)}`);
-  console.log(`Open Positions: ${balance.positionsCount}`);
   console.log("─".repeat(50));
   console.log("");
 }
