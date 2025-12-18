@@ -432,7 +432,9 @@ async function processTransactions(
   wallet: HDNodeWallet,
   apiClient: PerpsApiClient,
 ): Promise<void> {
-  for (const tx of transactions) {
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
+    
     if (tx.status === PerpTransactionStatus.CONFIRMED) continue;
 
     console.log(`${tx.type} (Transaction ID: ${tx.id})...`);
@@ -483,6 +485,10 @@ async function processTransactions(
     } catch (error: any) {
       console.error(`Failed to submit transaction ${tx.id}: ${error.message}`);
       throw error;
+    }
+
+    if (i < transactions.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 }
@@ -1059,6 +1065,9 @@ async function executeTrade(
 
   console.log("\nCreating action via API...\n");
   const actionResponse = await apiClient.createAction(providerId, actionType, address, args);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await processTransactions(actionResponse.transactions, wallet, apiClient);
   console.log("\nDone!\n");
 }
@@ -1141,6 +1150,9 @@ async function executeAction(
 
   console.log("\nCreating action via API...\n");
   const actionResponse = await apiClient.createAction(providerId, actionType, address, actionArgs);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   await processTransactions(actionResponse.transactions, wallet, apiClient);
   console.log("\nAction completed successfully!\n");
 }
