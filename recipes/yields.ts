@@ -35,7 +35,6 @@ interface YieldOpportunity {
   network: string;
   chainId?: string;
   token: TokenDto;
-  tokens: TokenDto[];
   inputTokens?: TokenDto[];
   outputToken?: TokenDto;
   providerId: string;
@@ -289,6 +288,22 @@ class YieldsApiClient {
 
 // ===== Helper Functions =====
 
+function formatUsd(value: string): string {
+  const num = Number.parseFloat(value);
+  if (num >= 1000000) return `$${(num / 1000000).toFixed(2)}M`;
+  if (num >= 1000) return `$${(num / 1000).toFixed(2)}K`;
+  return `$${num.toFixed(2)}`;
+}
+
+function formatApy(rate: number): string {
+  return `${(rate * 100).toFixed(2)}%`;
+}
+
+function displayTransactionInfo(tx: Transaction): void {
+  if (tx.hash) console.log(`  Hash: ${tx.hash}`);
+  if (tx.explorerUrl) console.log(`  Explorer: ${tx.explorerUrl}`);
+}
+
 async function promptForArguments(
   schema: any,
   yieldId?: string,
@@ -310,10 +325,10 @@ async function promptForArguments(
       const validatorsResponse = await apiClient.getValidators(yieldId, 100, 0);
 
       if (validatorsResponse.items.length > 0) {
-        const validatorChoices = validatorsResponse.items.map((v: ValidatorDto) => ({
-          name: `${v.name || v.address} ${v.rewardRate ? `- APY: ${(v.rewardRate.total * 100).toFixed(2)}%` : ""} ${v.status ? `(${v.status})` : ""}`,
-          value: v.address,
-        }));
+          const validatorChoices = validatorsResponse.items.map((v: ValidatorDto) => ({
+            name: `${v.name || v.address} ${v.rewardRate ? `- APY: ${formatApy(v.rewardRate.total)}` : ""} ${v.status ? `(${v.status})` : ""}`,
+            value: v.address,
+          }));
 
         const { selectedValidator }: any = await Enquirer.prompt({
           type: "autocomplete",
@@ -419,6 +434,7 @@ async function signAndSubmitTransactions(
       console.log(
         `Step ${i + 1}/${transactions.length}: ${tx.type} (already ${tx.status.toLowerCase()})`,
       );
+      displayTransactionInfo(tx);
       continue;
     }
 
@@ -447,12 +463,7 @@ async function signAndSubmitTransactions(
       const result = await apiClient.submitTransaction(tx.id, signedTx);
 
       console.log("Submitted!");
-      if (result.hash) {
-        console.log(`  Hash: ${result.hash}`);
-      }
-      if (result.explorerUrl) {
-        console.log(`  Explorer: ${result.explorerUrl}`);
-      }
+      displayTransactionInfo(result);
 
       console.log("Waiting for confirmation...");
       let confirmed = false;
@@ -467,9 +478,7 @@ async function signAndSubmitTransactions(
 
           if (status.status === "CONFIRMED") {
             console.log("Confirmed!");
-            if (status.explorerUrl) {
-              console.log(`  Explorer: ${status.explorerUrl}`);
-            }
+            displayTransactionInfo(status);
             confirmed = true;
           } else if (status.status === "FAILED") {
             console.error("Transaction failed!");
@@ -558,7 +567,7 @@ async function selectYieldFlow(
   console.log(`Loaded ${yields.length} yield opportunities\n`);
 
   const yieldChoices = yields.map((y) => ({
-    name: `${y.metadata?.name || y.id} (${y.token?.symbol || "?"}) on ${y.network} - APY: ${((y.rewardRate?.total || 0) * 100).toFixed(2)}%`,
+    name: `${y.metadata?.name || y.id} (${y.token?.symbol || "?"}) on ${y.network} - APY: ${formatApy(y.rewardRate?.total || 0)}`,
     value: y,
   }));
 
@@ -594,17 +603,10 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
   console.log("Key Metrics");
   console.log(`${"─".repeat(70)}`);
   
-  const apy = ((yieldInfo.rewardRate?.total || 0) * 100).toFixed(2);
-  console.log(`  APY: ${apy}%`);
+  console.log(`  APY: ${formatApy(yieldInfo.rewardRate?.total || 0)}`);
   
   if (yieldInfo.statistics?.tvlUsd) {
-    const tvl = Number.parseFloat(yieldInfo.statistics.tvlUsd);
-    const tvlFormatted = tvl >= 1000000 
-      ? `$${(tvl / 1000000).toFixed(2)}M`
-      : tvl >= 1000
-      ? `$${(tvl / 1000).toFixed(2)}K`
-      : `$${tvl.toFixed(2)}`;
-    console.log(`  TVL: ${tvlFormatted}`);
+    console.log(`  TVL: ${formatUsd(yieldInfo.statistics.tvlUsd)}`);
   }
   
   console.log(`  Type: ${yieldInfo.mechanics?.type || "N/A"}\n`);
@@ -634,7 +636,7 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     console.log("Reward Rate Breakdown");
     console.log(`${"─".repeat(70)}`);
     for (const component of yieldInfo.rewardRate.components) {
-      console.log(`  ${(component.rate * 100).toFixed(2)}% ${component.rateType} from ${component.yieldSource}`);
+      console.log(`  ${formatApy(component.rate)} ${component.rateType} from ${component.yieldSource}`);
       if (component.description) {
         console.log(`    └─ ${component.description}`);
       }
@@ -682,6 +684,7 @@ async function showYieldMenu(
 
     const choices: string[] = [];
     const actionMap = new Map<string, { balance: BalanceDto; action: PendingAction }>();
+    let hasPendingActions = false;
 
     try {
       const balanceData = await apiClient.getBalances(yieldInfo.id, address);
@@ -689,8 +692,14 @@ async function showYieldMenu(
       
       for (const balance of balanceData.balances) {
         for (const pendingAction of balance.pendingActions) {
-          const actionLabel = `${balance.type} - ${pendingAction.type} (${balance.amount} ${balance.token.symbol})`;
-          choices.push(actionLabel);
+          hasPendingActions = true;
+          let validatorInfo = "";
+          if (balance.validator) {
+            validatorInfo = ` - ${balance.validator.name || balance.validator.address}`;
+          } else if (balance.validators && balance.validators.length > 0) {
+            validatorInfo = ` - ${balance.validators.length} validator${balance.validators.length > 1 ? "s" : ""}`;
+          }
+          const actionLabel = `${balance.type} - ${pendingAction.type} (${balance.amount} ${balance.token.symbol})${validatorInfo}`;
           actionMap.set(actionLabel, { balance, action: pendingAction });
         }
       }
@@ -703,6 +712,9 @@ async function showYieldMenu(
     }
     if (yieldInfo.status.enter) choices.push("Enter");
     if (yieldInfo.status.exit) choices.push("Exit");
+    if (hasPendingActions) {
+      choices.push("Manage");
+    }
     choices.push("Back");
 
     const { action }: any = await Enquirer.prompt({
@@ -717,19 +729,39 @@ async function showYieldMenu(
     }
 
     try {
-      const selectedActionData = actionMap.get(action);
-      if (selectedActionData) {
-        await executePendingAction(apiClient, yieldInfo, address, wallet, selectedActionData.balance, selectedActionData.action);
+      if (action === "Manage") {
+        const manageChoices = Array.from(actionMap.keys());
+        manageChoices.push("Back");
+
+        const { selectedAction }: any = await Enquirer.prompt({
+          type: "select",
+          name: "selectedAction",
+          message: "Select action to manage:",
+          choices: manageChoices,
+        });
+
+        if (selectedAction === "Back") {
+          continue;
+        }
+
+        const selectedActionData = actionMap.get(selectedAction);
+        if (selectedActionData) {
+          await executeAction(apiClient, yieldInfo, address, wallet, {
+            type: "manage",
+            balance: selectedActionData.balance,
+            pendingAction: selectedActionData.action,
+          });
+        }
       } else {
         switch (action) {
           case "View Validators":
             await viewValidators(apiClient, yieldInfo);
             break;
           case "Enter":
-            await enterYield(apiClient, yieldInfo, address, wallet);
+            await executeAction(apiClient, yieldInfo, address, wallet, { type: "enter" });
             break;
           case "Exit":
-            await exitYield(apiClient, yieldInfo, address, wallet);
+            await executeAction(apiClient, yieldInfo, address, wallet, { type: "exit" });
             break;
         }
       }
@@ -741,35 +773,50 @@ async function showYieldMenu(
   }
 }
 
-async function enterYield(
+async function executeAction(
   apiClient: YieldsApiClient,
   yieldInfo: YieldOpportunity,
   address: string,
   wallet: HDNodeWallet,
+  options: {
+    type: "enter" | "exit" | "manage";
+    balance?: BalanceDto;
+    pendingAction?: PendingAction;
+  },
 ): Promise<void> {
-  console.log("\nEnter Yield\n");
+  const { type, balance, pendingAction } = options;
+  const isManage = type === "manage";
+  const actionLabel = type === "enter" ? "Enter" : type === "exit" ? "Exit" : pendingAction?.type || "Manage";
+  
+  console.log(`\n${isManage ? actionLabel : `${actionLabel} Yield`}\n`);
 
   const args: any = {};
+  let schema: any;
 
-  if (yieldInfo.mechanics?.arguments?.enter) {
-    const collected = await promptForArguments(
-      yieldInfo.mechanics.arguments.enter,
-      yieldInfo.id,
-      apiClient,
-    );
+  if (isManage && pendingAction?.arguments) {
+    schema = pendingAction.arguments;
+  } else if (!isManage) {
+    schema = yieldInfo.mechanics?.arguments?.[type];
+  }
+
+  if (schema) {
+    const collected = await promptForArguments(schema, yieldInfo.id, apiClient);
     Object.assign(args, collected);
-  } else {
+  } else if (!isManage) {
     const { amount }: any = await Enquirer.prompt({
       type: "input",
       name: "amount",
-      message: "Enter amount:",
+      message: `${actionLabel} amount:`,
     });
     args.amount = amount;
   }
 
   console.log("\nAction Summary:");
   console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
-  console.log("  Action: Enter");
+  if (balance) {
+    console.log(`  Balance: ${balance.type} - ${balance.amount} ${balance.token.symbol}`);
+  }
+  console.log(`  Action: ${actionLabel}`);
   for (const [key, value] of Object.entries(args)) {
     console.log(`  ${key}: ${value}`);
   }
@@ -785,66 +832,36 @@ async function enterYield(
     return;
   }
 
-  console.log("\nCreating action...\n");
-  const actionResponse = await apiClient.enterYield(yieldInfo.id, address, args);
+  try {
+    console.log("\nCreating action...\n");
+    let actionResponse: Action;
 
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (isManage && pendingAction) {
+      actionResponse = await apiClient.manageYield(
+        yieldInfo.id,
+        address,
+        pendingAction.type,
+        pendingAction.passthrough,
+        args,
+      );
+    } else if (type === "enter") {
+      actionResponse = await apiClient.enterYield(yieldInfo.id, address, args);
+    } else {
+      actionResponse = await apiClient.exitYield(yieldInfo.id, address, args);
+    }
 
-  await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
-  console.log("\nYield entered successfully!\n");
-}
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-async function exitYield(
-  apiClient: YieldsApiClient,
-  yieldInfo: YieldOpportunity,
-  address: string,
-  wallet: HDNodeWallet,
-): Promise<void> {
-  console.log("\nExit Yield\n");
-
-  const args: any = {};
-
-  if (yieldInfo.mechanics?.arguments?.exit) {
-    const collected = await promptForArguments(
-      yieldInfo.mechanics.arguments.exit,
-      yieldInfo.id,
-      apiClient,
-    );
-    Object.assign(args, collected);
-  } else {
-    const { amount }: any = await Enquirer.prompt({
-      type: "input",
-      name: "amount",
-      message: "Exit amount:",
-    });
-    args.amount = amount;
+    await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
+    
+    const successMessage = isManage
+      ? "\nAction completed successfully!\n"
+      : `\nYield ${type === "enter" ? "entered" : "exited"} successfully!\n`;
+    console.log(successMessage);
+  } catch (error: any) {
+    console.error("\nError:", error?.message || error);
+    throw error;
   }
-
-  console.log("\nAction Summary:");
-  console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
-  console.log("  Action: Exit");
-  for (const [key, value] of Object.entries(args)) {
-    console.log(`  ${key}: ${value}`);
-  }
-
-  const { confirm }: any = await Enquirer.prompt({
-    type: "confirm",
-    name: "confirm",
-    message: "Proceed?",
-  });
-
-  if (!confirm) {
-    console.log("Cancelled\n");
-    return;
-  }
-
-  console.log("\nCreating action...\n");
-  const actionResponse = await apiClient.exitYield(yieldInfo.id, address, args);
-
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-
-  await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
-  console.log("\nYield exited successfully!\n");
 }
 
 async function viewValidators(
@@ -878,11 +895,10 @@ async function viewValidators(
           console.log(`  Status: ${validator.status}`);
         }
         if (validator.rewardRate) {
-          const apy = (validator.rewardRate.total * 100).toFixed(2);
-          console.log(`  APY: ${apy}% ${validator.rewardRate.rateType}`);
+          console.log(`  APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`);
           if (validator.rewardRate.components && validator.rewardRate.components.length > 0) {
             for (const component of validator.rewardRate.components) {
-              console.log(`    - ${(component.rate * 100).toFixed(2)}% ${component.rateType} from ${component.yieldSource}`);
+              console.log(`    - ${formatApy(component.rate)} ${component.rateType} from ${component.yieldSource}`);
             }
           }
         }
@@ -890,13 +906,7 @@ async function viewValidators(
           console.log(`  Commission: ${(validator.commission * 100).toFixed(2)}%`);
         }
         if (validator.tvlUsd) {
-          const tvl = Number.parseFloat(validator.tvlUsd);
-          const tvlFormatted = tvl >= 1000000 
-            ? `$${(tvl / 1000000).toFixed(2)}M`
-            : tvl >= 1000
-            ? `$${(tvl / 1000).toFixed(2)}K`
-            : `$${tvl.toFixed(2)}`;
-          console.log(`  TVL: ${tvlFormatted}`);
+          console.log(`  TVL: ${formatUsd(validator.tvlUsd)}`);
         }
         if (validator.votingPower !== undefined) {
           console.log(`  Voting Power: ${(validator.votingPower * 100).toFixed(2)}%`);
@@ -959,13 +969,7 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
     console.log(`${"─".repeat(70)}`);
     console.log(`  Amount: ${balance.amount} ${balance.token.symbol}`);
     if (balance.amountUsd) {
-      const usdValue = Number.parseFloat(balance.amountUsd);
-      const usdFormatted = usdValue >= 1000000 
-        ? `$${(usdValue / 1000000).toFixed(2)}M`
-        : usdValue >= 1000
-        ? `$${(usdValue / 1000).toFixed(2)}K`
-        : `$${usdValue.toFixed(2)}`;
-      console.log(`  Value: ${usdFormatted}`);
+      console.log(`  Value: ${formatUsd(balance.amountUsd)}`);
     }
     if (balance.token.address) {
       console.log(`  Token Address: ${balance.token.address}`);
@@ -981,8 +985,7 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
         console.log(`    Address: ${balance.validator.address}`);
       }
       if (balance.validator.rewardRate) {
-        const apy = (balance.validator.rewardRate.total * 100).toFixed(2);
-        console.log(`    APY: ${apy}% ${balance.validator.rewardRate.rateType}`);
+        console.log(`    APY: ${formatApy(balance.validator.rewardRate.total)} ${balance.validator.rewardRate.rateType}`);
       }
       if (balance.validator.commission !== undefined) {
         console.log(`    Commission: ${(balance.validator.commission * 100).toFixed(2)}%`);
@@ -997,8 +1000,7 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
       for (const validator of balance.validators) {
         console.log(`    - ${validator.name || validator.address}`);
         if (validator.rewardRate) {
-          const apy = (validator.rewardRate.total * 100).toFixed(2);
-          console.log(`      APY: ${apy}% ${validator.rewardRate.rateType}`);
+          console.log(`      APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`);
         }
         if (validator.commission !== undefined) {
           console.log(`      Commission: ${(validator.commission * 100).toFixed(2)}%`);
@@ -1018,58 +1020,6 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
   }
 }
 
-async function executePendingAction(
-  apiClient: YieldsApiClient,
-  yieldInfo: YieldOpportunity,
-  address: string,
-  wallet: HDNodeWallet,
-  balance: BalanceDto,
-  pendingAction: PendingAction,
-): Promise<void> {
-  const args: any = {};
-  if (pendingAction.arguments) {
-    const collected = await promptForArguments(pendingAction.arguments, yieldInfo.id, apiClient);
-    Object.assign(args, collected);
-  }
-
-  console.log("\nAction Summary:");
-  console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
-  console.log(`  Balance: ${balance.type} - ${balance.amount} ${balance.token.symbol}`);
-  console.log(`  Action: ${pendingAction.type}`);
-  for (const [key, value] of Object.entries(args)) {
-    console.log(`  ${key}: ${value}`);
-  }
-
-  const { confirm }: any = await Enquirer.prompt({
-    type: "confirm",
-    name: "confirm",
-    message: "Proceed?",
-  });
-
-  if (!confirm) {
-    console.log("Cancelled\n");
-    return;
-  }
-
-  try {
-    console.log("\nCreating action...\n");
-    const actionResponse = await apiClient.manageYield(
-      yieldInfo.id,
-      address,
-      pendingAction.type,
-      pendingAction.passthrough,
-      args,
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
-    console.log("\nAction completed successfully!\n");
-  } catch (error: any) {
-    console.error("\nError:", error?.message || error);
-    throw error;
-  }
-}
 
 main().catch((error) => {
   console.error("Script failed with error:", error);
