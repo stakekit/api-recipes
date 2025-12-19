@@ -540,21 +540,24 @@ async function main() {
 
     let providerId: string;
     if (providers.length === 1) {
-      providerId = providers[0].providerId;
+      providerId = providers[0].id;
       console.log(`Provider: ${providers[0].name} (${providers[0].network})\n`);
     } else {
-      const choices = providers.map((p) => ({
+      const providerChoices = providers.map((p) => ({
         name: `${p.name} (${p.network})`,
-        value: p.providerId,
+        value: p.id,
       }));
 
       const result: any = await Enquirer.prompt({
         type: "select",
-        name: "providerId",
+        name: "selected",
         message: "Select perpetuals provider:",
-        choices,
+        choices: providerChoices,
       });
-      providerId = result.providerId;
+      
+      const selected = providerChoices.find((c) => c.name === result.selected);
+      if (!selected) throw new Error("Invalid provider selected");
+      providerId = selected.value;
     }
 
     console.log("Fetching markets...\n");
