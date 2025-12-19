@@ -455,14 +455,13 @@ async function signAndSubmitTransactions(
         console.log(`  Using nonce: ${txData.nonce}`);
       }
 
-      nonceOffset++;
-
       const signedTx = await wallet.signTransaction(txData);
 
       console.log("Submitting...");
       const result = await apiClient.submitTransaction(tx.id, signedTx);
 
       console.log("Submitted!");
+      nonceOffset++;
       displayTransactionInfo(result);
 
       console.log("Waiting for confirmation...");
