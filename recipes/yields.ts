@@ -455,6 +455,12 @@ async function signAndSubmitTransactions(
         console.log(`  Using nonce: ${txData.nonce}`);
       }
 
+      // Increase gas limit by 30% for safety
+      if (txData.gasLimit !== undefined && txData.gasLimit !== null) {
+        txData.gasLimit = Math.floor(Number(txData.gasLimit) * 1.3);
+        console.log(`  Gas limit: ${txData.gasLimit}`);
+      }
+
       const signedTx = await wallet.signTransaction(txData);
 
       console.log("Submitting...");
