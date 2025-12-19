@@ -263,8 +263,8 @@ class YieldsApiClient {
     offset?: number,
   ): Promise<{ items: ValidatorDto[]; total: number; offset: number; limit: number }> {
     const params = new URLSearchParams();
-    if (limit) params.append("limit", limit.toString());
-    if (offset) params.append("offset", offset.toString());
+    if (limit !== undefined) params.append("limit", limit.toString());
+    if (offset !== undefined) params.append("offset", offset.toString());
 
     const query = params.toString();
     return this.makeRequest<{
