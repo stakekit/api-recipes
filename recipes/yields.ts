@@ -249,15 +249,12 @@ async function promptForArguments(
   apiClient?: YieldsApiClient,
 ): Promise<Record<string, any>> {
   const result: Record<string, any> = {};
-
-  // Handle ArgumentSchemaDto structure with fields array
   const fields = schema?.fields || [];
 
   for (const field of fields) {
     const isRequired = field.required || false;
     const message = `${field.label || field.name}${!isRequired ? " (optional)" : ""}`;
 
-    // Handle validator selection via optionsRef
     if (
       field.optionsRef &&
       yieldId &&
@@ -281,14 +278,12 @@ async function promptForArguments(
 
         const selected = validatorChoices.find((c) => c.name === selectedValidator);
         if (selected) {
-          // Return as array for validatorAddresses, string for validatorAddress
           result[field.name] = field.isArray ? [selected.value] : selected.value;
         }
         continue;
       }
     }
 
-    // Regular field handling
     if (field.options && field.options.length > 0) {
       const response: any = await Enquirer.prompt({
         type: "select",
@@ -328,7 +323,6 @@ async function promptForArguments(
       } as any);
       result[field.name] = response.value;
     } else if (field.isArray) {
-      // Handle array fields (e.g., amounts for multi-token deposits)
       const response: any = await Enquirer.prompt({
         type: "input",
         name: "value",
@@ -339,14 +333,12 @@ async function promptForArguments(
         result[field.name] = response.value.split(",").map((v: string) => v.trim());
       }
     } else if (field.type === "object" && field.fields) {
-      // Handle nested objects (e.g., range with lowerPrice/upperPrice for LP)
       console.log(`\n${field.label || field.name}:`);
       const nestedResult = await promptForArguments({ fields: field.fields }, yieldId, apiClient);
       if (Object.keys(nestedResult).length > 0) {
         result[field.name] = nestedResult;
       }
     } else {
-      // String or other types
       const response: any = await Enquirer.prompt({
         type: "input",
         name: "value",
@@ -462,7 +454,6 @@ async function main() {
   try {
     console.log("\nYield.xyz Yields API\n");
 
-    // Get API configuration
     const apiUrl = process.env.YIELDS_API_URL || "https://api.yield.xyz";
     const apiKey = process.env.YIELDS_API_KEY;
 
@@ -474,7 +465,6 @@ async function main() {
     const apiClient = new YieldsApiClient(apiUrl, apiKey);
     console.log(`API URL: ${apiUrl}\n`);
 
-    // Initialize wallet
     const mnemonic = process.env.MNEMONIC;
     if (!mnemonic) {
       console.log("MNEMONIC environment variable is required");
@@ -487,7 +477,6 @@ async function main() {
     const address = wallet.address;
     console.log(`Address: ${address}\n`);
 
-    // Start directly with yield selection
     await selectYieldFlow(apiClient, address, wallet);
   } catch (e: any) {
     console.error("Fatal Error:", e?.message || e);
@@ -547,26 +536,21 @@ async function selectYieldFlow(
 }
 
 function displayYieldInfo(yieldInfo: YieldOpportunity): void {
-  // Header
   console.log(`\n${"═".repeat(70)}`);
   console.log(`${yieldInfo.metadata?.name || yieldInfo.id}`);
   console.log(`${"═".repeat(70)}\n`);
   
-  // Description
   if (yieldInfo.metadata?.description) {
     console.log(`${yieldInfo.metadata.description}\n`);
   }
   
-  // Key Metrics Row
   console.log(`${"─".repeat(70)}`);
   console.log("Key Metrics");
   console.log(`${"─".repeat(70)}`);
   
-  // APY
   const apy = ((yieldInfo.rewardRate?.total || 0) * 100).toFixed(2);
   console.log(`  APY: ${apy}%`);
   
-  // TVL
   if (yieldInfo.statistics?.tvlUsd) {
     const tvl = Number.parseFloat(yieldInfo.statistics.tvlUsd);
     const tvlFormatted = tvl >= 1000000 
@@ -577,10 +561,8 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     console.log(`  TVL: ${tvlFormatted}`);
   }
   
-  // Type
   console.log(`  Type: ${yieldInfo.mechanics?.type || "N/A"}\n`);
   
-  // Input Token
   console.log(`${"─".repeat(70)}`);
   console.log("Input Token");
   console.log(`${"─".repeat(70)}`);
@@ -594,7 +576,6 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     console.log(`  N/A`);
   }
   
-  // Output Token (if different from input)
   if (yieldInfo.outputToken && yieldInfo.outputToken.symbol !== yieldInfo.token?.symbol) {
     console.log(`${"─".repeat(70)}`);
     console.log("Output Token");
@@ -602,7 +583,6 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     console.log(`  ${yieldInfo.outputToken.symbol}${yieldInfo.outputToken.name ? ` - ${yieldInfo.outputToken.name}` : ""}${yieldInfo.outputToken.address ? ` (${yieldInfo.outputToken.address})` : ""}\n`);
   }
   
-  // Reward Rate Breakdown
   if (yieldInfo.rewardRate?.components && yieldInfo.rewardRate.components.length > 0) {
     console.log(`${"─".repeat(70)}`);
     console.log("Reward Rate Breakdown");
@@ -618,7 +598,6 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     }
   }
   
-  // Entry Limits
   if (yieldInfo.mechanics?.entryLimits) {
     console.log(`${"─".repeat(70)}`);
     console.log("Entry Limits");
@@ -628,14 +607,12 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     console.log(`  Maximum: ${limits.maximum || "No limit"}\n`);
   }
   
-  // Network & Provider
   console.log(`${"─".repeat(70)}`);
   console.log("Network & Provider");
   console.log(`${"─".repeat(70)}`);
   console.log(`  Network: ${yieldInfo.network}${yieldInfo.chainId ? ` (Chain ID: ${yieldInfo.chainId})` : ""}`);
   console.log(`  Provider: ${yieldInfo.providerId}\n`);
   
-  // Available Actions
   console.log(`${"─".repeat(70)}`);
   console.log("Available Actions");
   console.log(`${"─".repeat(70)}`);
@@ -652,13 +629,11 @@ async function showYieldMenu(
   let metadataShown = false;
   
   while (true) {
-    // Only show metadata once when first entering the menu
     if (!metadataShown) {
       displayYieldInfo(yieldInfo);
       metadataShown = true;
     }
 
-    // Fetch and display balances automatically
     const choices: string[] = [];
     const actionMap = new Map<string, { balance: BalanceDto; action: PendingAction }>();
 
@@ -666,7 +641,6 @@ async function showYieldMenu(
       const balanceData = await apiClient.getBalances(yieldInfo.id, address);
       displayBalances(balanceData, yieldInfo);
       
-      // Collect all pending actions from all balances
       for (const balance of balanceData.balances) {
         for (const pendingAction of balance.pendingActions) {
           const actionLabel = `${balance.type} - ${pendingAction.type} (${balance.amount} ${balance.token.symbol})`;
@@ -694,7 +668,6 @@ async function showYieldMenu(
     }
 
     try {
-      // Check if it's a pending action
       const selectedActionData = actionMap.get(action);
       if (selectedActionData) {
         await executePendingAction(apiClient, yieldInfo, address, wallet, selectedActionData.balance, selectedActionData.action);
@@ -832,7 +805,6 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
     return;
   }
 
-  // Display balances
   for (const balance of balanceData.balances) {
     console.log(`${"─".repeat(70)}`);
     console.log(`${balance.type.toUpperCase()}`);
@@ -874,7 +846,6 @@ async function executePendingAction(
   balance: BalanceDto,
   pendingAction: PendingAction,
 ): Promise<void> {
-  // Collect arguments
   const args: any = {};
   if (pendingAction.arguments) {
     const collected = await promptForArguments(pendingAction.arguments, yieldInfo.id, apiClient);
