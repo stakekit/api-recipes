@@ -952,12 +952,16 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
   console.log(`${yieldInfo.metadata?.name || yieldInfo.id} - Balances`);
   console.log(`${"═".repeat(70)}\n`);
 
-  if (balanceData.balances.length === 0) {
+  const nonZeroBalances = balanceData.balances.filter(
+    (balance) => Number.parseFloat(balance.amount) > 0 || Number.parseFloat(balance.amountRaw) > 0,
+  );
+
+  if (nonZeroBalances.length === 0) {
     console.log("No balances found for this yield\n");
     return;
   }
 
-  for (const balance of balanceData.balances) {
+  for (const balance of nonZeroBalances) {
     console.log(`${"─".repeat(70)}`);
     console.log(`${balance.type.toUpperCase()}`);
     console.log(`${"─".repeat(70)}`);
