@@ -746,8 +746,7 @@ async function showYieldMenu(
 
         const selectedActionData = actionMap.get(selectedAction);
         if (selectedActionData) {
-          await executeAction(apiClient, yieldInfo, address, wallet, {
-            type: "manage",
+          await executeAction(apiClient, yieldInfo, address, wallet, "manage", {
             balance: selectedActionData.balance,
             pendingAction: selectedActionData.action,
           });
@@ -758,10 +757,10 @@ async function showYieldMenu(
             await viewValidators(apiClient, yieldInfo);
             break;
           case "Enter":
-            await executeAction(apiClient, yieldInfo, address, wallet, { type: "enter" });
+            await executeAction(apiClient, yieldInfo, address, wallet, "enter");
             break;
           case "Exit":
-            await executeAction(apiClient, yieldInfo, address, wallet, { type: "exit" });
+            await executeAction(apiClient, yieldInfo, address, wallet, "exit");
             break;
         }
       }
@@ -778,23 +777,19 @@ async function executeAction(
   yieldInfo: YieldOpportunity,
   address: string,
   wallet: HDNodeWallet,
-  options: {
-    type: "enter" | "exit" | "manage";
-    balance?: BalanceDto;
-    pendingAction?: PendingAction;
-  },
+  type: "enter" | "exit" | "manage",
+  manageActionArguments?: { balance: BalanceDto; pendingAction: PendingAction },
 ): Promise<void> {
-  const { type, balance, pendingAction } = options;
   const isManage = type === "manage";
-  const actionLabel = type === "enter" ? "Enter" : type === "exit" ? "Exit" : pendingAction?.type || "Manage";
+  const actionLabel = type === "enter" ? "Enter" : type === "exit" ? "Exit" : manageActionArguments?.pendingAction.type || "Manage";
   
   console.log(`\n${isManage ? actionLabel : `${actionLabel} Yield`}\n`);
 
   const args: any = {};
   let schema: any;
 
-  if (isManage && pendingAction?.arguments) {
-    schema = pendingAction.arguments;
+  if (isManage && manageActionArguments?.pendingAction.arguments) {
+    schema = manageActionArguments.pendingAction.arguments;
   } else if (!isManage) {
     schema = yieldInfo.mechanics?.arguments?.[type];
   }
@@ -813,8 +808,8 @@ async function executeAction(
 
   console.log("\nAction Summary:");
   console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
-  if (balance) {
-    console.log(`  Balance: ${balance.type} - ${balance.amount} ${balance.token.symbol}`);
+  if (manageActionArguments?.balance) {
+    console.log(`  Balance: ${manageActionArguments.balance.type} - ${manageActionArguments.balance.amount} ${manageActionArguments.balance.token.symbol}`);
   }
   console.log(`  Action: ${actionLabel}`);
   for (const [key, value] of Object.entries(args)) {
@@ -836,12 +831,12 @@ async function executeAction(
     console.log("\nCreating action...\n");
     let actionResponse: Action;
 
-    if (isManage && pendingAction) {
+    if (isManage && manageActionArguments) {
       actionResponse = await apiClient.manageYield(
         yieldInfo.id,
         address,
-        pendingAction.type,
-        pendingAction.passthrough,
+        manageActionArguments.pendingAction.type,
+        manageActionArguments.pendingAction.passthrough,
         args,
       );
     } else if (type === "enter") {
