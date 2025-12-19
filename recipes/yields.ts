@@ -299,6 +299,10 @@ function formatApy(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
 
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
 function displayTransactionInfo(tx: Transaction): void {
   if (tx.hash) console.log(`  Hash: ${tx.hash}`);
   if (tx.explorerUrl) console.log(`  Explorer: ${tx.explorerUrl}`);
@@ -325,22 +329,21 @@ async function promptForArguments(
       const validatorsResponse = await apiClient.getValidators(yieldId, 100, 0);
 
       if (validatorsResponse.items.length > 0) {
-          const validatorChoices = validatorsResponse.items.map((v: ValidatorDto) => ({
-            name: `${v.name || v.address} ${v.rewardRate ? `- APY: ${formatApy(v.rewardRate.total)}` : ""} ${v.status ? `(${v.status})` : ""}`,
-            value: v.address,
-          }));
+        const validatorChoices = validatorsResponse.items.map((v: ValidatorDto) => ({
+          name: `${v.name || v.address} ${v.rewardRate ? `- APY: ${formatApy(v.rewardRate.total)}` : ""} ${v.status ? `(${v.status})` : ""}`,
+          value: v.address,
+        }));
 
         const { selectedValidator }: any = await Enquirer.prompt({
           type: "autocomplete",
           name: "selectedValidator",
           message,
-          choices: validatorChoices.map((c: { name: string; value: string }) => c.name),
+          choices: validatorChoices.map((c) => c.name),
         });
 
-        const selected = validatorChoices.find((c: { name: string; value: string }) => c.name === selectedValidator);
-        if (selected) {
-          result[field.name] = field.isArray ? [selected.value] : selected.value;
-        }
+        const selected = validatorChoices.find((c) => c.name === selectedValidator);
+        if (!selected) throw new Error("Invalid validator selected");
+        result[field.name] = field.isArray ? [selected.value] : selected.value;
         continue;
       }
     }
@@ -903,13 +906,13 @@ async function viewValidators(
           }
         }
         if (validator.commission !== undefined) {
-          console.log(`  Commission: ${(validator.commission * 100).toFixed(2)}%`);
+          console.log(`  Commission: ${formatPercent(validator.commission)}`);
         }
         if (validator.tvlUsd) {
           console.log(`  TVL: ${formatUsd(validator.tvlUsd)}`);
         }
         if (validator.votingPower !== undefined) {
-          console.log(`  Voting Power: ${(validator.votingPower * 100).toFixed(2)}%`);
+          console.log(`  Voting Power: ${formatPercent(validator.votingPower)}`);
         }
         if (validator.preferred) {
           console.log("  Preferred: Yes");
@@ -992,7 +995,7 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
         console.log(`    APY: ${formatApy(balance.validator.rewardRate.total)} ${balance.validator.rewardRate.rateType}`);
       }
       if (balance.validator.commission !== undefined) {
-        console.log(`    Commission: ${(balance.validator.commission * 100).toFixed(2)}%`);
+        console.log(`    Commission: ${formatPercent(balance.validator.commission)}`);
       }
       if (balance.validator.status) {
         console.log(`    Status: ${balance.validator.status}`);
@@ -1007,7 +1010,7 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
           console.log(`      APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`);
         }
         if (validator.commission !== undefined) {
-          console.log(`      Commission: ${(validator.commission * 100).toFixed(2)}%`);
+          console.log(`      Commission: ${formatPercent(validator.commission)}`);
         }
       }
     }
@@ -1023,7 +1026,6 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
     }
   }
 }
-
 
 main().catch((error) => {
   console.error("Script failed with error:", error);
