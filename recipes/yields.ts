@@ -33,12 +33,22 @@ interface TokenDto {
 interface YieldOpportunity {
   id: string;
   network: string;
+  chainId?: string;
   token: TokenDto;
   tokens: TokenDto[];
+  inputTokens?: TokenDto[];
+  outputToken?: TokenDto;
   providerId: string;
   rewardRate: {
     total: number;
     rateType: string;
+    components?: Array<{
+      rate: number;
+      rateType: string;
+      token: TokenDto;
+      yieldSource: string;
+      description: string;
+    }>;
   };
   status: {
     enter: boolean;
@@ -48,13 +58,46 @@ interface YieldOpportunity {
     name: string;
     logoURI: string;
     description: string;
+    documentation?: string;
+    supportedStandards?: string[];
+    underMaintenance?: boolean;
+    deprecated?: boolean;
   };
   mechanics: {
     type: string;
+    requiresValidatorSelection?: boolean;
+    rewardSchedule?: string;
+    rewardClaiming?: string;
+    gasFeeToken?: TokenDto;
+    entryLimits?: {
+      minimum: string;
+      maximum: string | null;
+    };
+    supportsLedgerWalletApi?: boolean;
+    possibleFeeTakingMechanisms?: {
+      depositFee?: boolean;
+      managementFee?: boolean;
+      performanceFee?: boolean;
+      validatorRebates?: boolean;
+    };
     arguments?: {
       enter?: any;
       exit?: any;
       manage?: Record<string, any>;
+    };
+  };
+  tags?: string[];
+  statistics?: {
+    tvlUsd?: string;
+    tvl?: string;
+    uniqueUsers?: number | null;
+    averagePositionSizeUsd?: string | null;
+  };
+  state?: {
+    capacityState?: {
+      current: string;
+      max: string;
+      remaining: string;
     };
   };
 }
@@ -64,6 +107,7 @@ interface BalanceDto {
   type: string;
   amount: string;
   amountRaw: string;
+  amountUsd?: string;
   token: TokenDto;
   pendingActions: PendingAction[];
   isEarning: boolean;
@@ -328,6 +372,8 @@ async function signAndSubmitTransactions(
   wallet: HDNodeWallet,
   apiClient: YieldsApiClient,
 ): Promise<void> {
+  let nonceOffset = 0;
+
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
 
@@ -340,9 +386,24 @@ async function signAndSubmitTransactions(
 
     console.log(`\nStep ${i + 1}/${transactions.length}: ${tx.type}`);
 
+    if (!tx.unsignedTransaction) {
+      console.log("Skipping: No unsigned transaction data");
+      continue;
+    }
+
     try {
       console.log("Signing...");
-      const signedTx = await wallet.signTransaction(JSON.parse(tx.unsignedTransaction));
+      let txData = JSON.parse(tx.unsignedTransaction);
+
+      // Increment nonce by 1 for each transaction
+      if (txData.nonce !== undefined && txData.nonce !== null) {
+        txData.nonce = Number(txData.nonce) + nonceOffset;
+        console.log(`  Using nonce: ${txData.nonce}`);
+      }
+
+      nonceOffset++;
+
+      const signedTx = await wallet.signTransaction(txData);
 
       console.log("Submitting...");
       const result = await apiClient.submitTransaction(tx.id, signedTx);
@@ -386,10 +447,8 @@ async function signAndSubmitTransactions(
       }
 
       if (!confirmed) {
-        console.log("\nWarning: Transaction confirmation timeout, continuing...");
+        console.log("\nWarning: Transaction confirmation timeout, continuing...\n");
       }
-
-      console.log("");
     } catch (error: any) {
       console.error(`Failed: ${error.message}`);
       throw error;
@@ -464,7 +523,7 @@ async function selectYieldFlow(
   console.log(`Loaded ${yields.length} yield opportunities\n`);
 
   const yieldChoices = yields.map((y) => ({
-    name: `${y.metadata?.name || y.id} (${y.token?.symbol || "?"}) - APY: ${((y.rewardRate?.total || 0) * 100).toFixed(2)}%`,
+    name: `${y.metadata?.name || y.id} (${y.token?.symbol || "?"}) on ${y.network} - APY: ${((y.rewardRate?.total || 0) * 100).toFixed(2)}%`,
     value: y,
   }));
 
@@ -487,20 +546,138 @@ async function selectYieldFlow(
   }
 }
 
+function displayYieldInfo(yieldInfo: YieldOpportunity): void {
+  // Header
+  console.log(`\n${"═".repeat(70)}`);
+  console.log(`${yieldInfo.metadata?.name || yieldInfo.id}`);
+  console.log(`${"═".repeat(70)}\n`);
+  
+  // Description
+  if (yieldInfo.metadata?.description) {
+    console.log(`${yieldInfo.metadata.description}\n`);
+  }
+  
+  // Key Metrics Row
+  console.log(`${"─".repeat(70)}`);
+  console.log("Key Metrics");
+  console.log(`${"─".repeat(70)}`);
+  
+  // APY
+  const apy = ((yieldInfo.rewardRate?.total || 0) * 100).toFixed(2);
+  console.log(`  APY: ${apy}%`);
+  
+  // TVL
+  if (yieldInfo.statistics?.tvlUsd) {
+    const tvl = Number.parseFloat(yieldInfo.statistics.tvlUsd);
+    const tvlFormatted = tvl >= 1000000 
+      ? `$${(tvl / 1000000).toFixed(2)}M`
+      : tvl >= 1000
+      ? `$${(tvl / 1000).toFixed(2)}K`
+      : `$${tvl.toFixed(2)}`;
+    console.log(`  TVL: ${tvlFormatted}`);
+  }
+  
+  // Type
+  console.log(`  Type: ${yieldInfo.mechanics?.type || "N/A"}\n`);
+  
+  // Input Token
+  console.log(`${"─".repeat(70)}`);
+  console.log("Input Token");
+  console.log(`${"─".repeat(70)}`);
+  if (yieldInfo.inputTokens && yieldInfo.inputTokens.length > 0) {
+    for (const token of yieldInfo.inputTokens) {
+      console.log(`  ${token.symbol}${token.name ? ` - ${token.name}` : ""}${token.address ? ` (${token.address})` : ""}`);
+    }
+  } else if (yieldInfo.token) {
+    console.log(`  ${yieldInfo.token.symbol}${yieldInfo.token.name ? ` - ${yieldInfo.token.name}` : ""}${yieldInfo.token.address ? ` (${yieldInfo.token.address})` : ""}`);
+  } else {
+    console.log(`  N/A`);
+  }
+  
+  // Output Token (if different from input)
+  if (yieldInfo.outputToken && yieldInfo.outputToken.symbol !== yieldInfo.token?.symbol) {
+    console.log(`${"─".repeat(70)}`);
+    console.log("Output Token");
+    console.log(`${"─".repeat(70)}`);
+    console.log(`  ${yieldInfo.outputToken.symbol}${yieldInfo.outputToken.name ? ` - ${yieldInfo.outputToken.name}` : ""}${yieldInfo.outputToken.address ? ` (${yieldInfo.outputToken.address})` : ""}\n`);
+  }
+  
+  // Reward Rate Breakdown
+  if (yieldInfo.rewardRate?.components && yieldInfo.rewardRate.components.length > 0) {
+    console.log(`${"─".repeat(70)}`);
+    console.log("Reward Rate Breakdown");
+    console.log(`${"─".repeat(70)}`);
+    for (const component of yieldInfo.rewardRate.components) {
+      console.log(`  ${(component.rate * 100).toFixed(2)}% ${component.rateType} from ${component.yieldSource}`);
+      if (component.description) {
+        console.log(`    └─ ${component.description}`);
+      }
+      if (component.token) {
+        console.log(`    └─ Token: ${component.token.symbol}`);
+      }
+    }
+  }
+  
+  // Entry Limits
+  if (yieldInfo.mechanics?.entryLimits) {
+    console.log(`${"─".repeat(70)}`);
+    console.log("Entry Limits");
+    console.log(`${"─".repeat(70)}`);
+    const limits = yieldInfo.mechanics.entryLimits;
+    console.log(`  Minimum: ${limits.minimum}`);
+    console.log(`  Maximum: ${limits.maximum || "No limit"}\n`);
+  }
+  
+  // Network & Provider
+  console.log(`${"─".repeat(70)}`);
+  console.log("Network & Provider");
+  console.log(`${"─".repeat(70)}`);
+  console.log(`  Network: ${yieldInfo.network}${yieldInfo.chainId ? ` (Chain ID: ${yieldInfo.chainId})` : ""}`);
+  console.log(`  Provider: ${yieldInfo.providerId}\n`);
+  
+  // Available Actions
+  console.log(`${"─".repeat(70)}`);
+  console.log("Available Actions");
+  console.log(`${"─".repeat(70)}`);
+  console.log(`  Enter: ${yieldInfo.status.enter ? "Yes" : "No"}`);
+  console.log(`  Exit: ${yieldInfo.status.exit ? "Yes" : "No"}\n`);
+}
+
 async function showYieldMenu(
   apiClient: YieldsApiClient,
   yieldInfo: YieldOpportunity,
   address: string,
   wallet: HDNodeWallet,
 ): Promise<void> {
+  let metadataShown = false;
+  
   while (true) {
-    console.log(`\n${yieldInfo.metadata?.name || yieldInfo.id}\n`);
-    console.log(`Network: ${yieldInfo.network}`);
-    console.log(`Token: ${yieldInfo.token.symbol}`);
-    console.log(`APY: ${((yieldInfo.rewardRate?.total || 0) * 100).toFixed(2)}%`);
-    console.log("");
+    // Only show metadata once when first entering the menu
+    if (!metadataShown) {
+      displayYieldInfo(yieldInfo);
+      metadataShown = true;
+    }
 
-    const choices = ["View Balances"];
+    // Fetch and display balances automatically
+    const choices: string[] = [];
+    const actionMap = new Map<string, { balance: BalanceDto; action: PendingAction }>();
+
+    try {
+      const balanceData = await apiClient.getBalances(yieldInfo.id, address);
+      displayBalances(balanceData, yieldInfo);
+      
+      // Collect all pending actions from all balances
+      for (const balance of balanceData.balances) {
+        for (const pendingAction of balance.pendingActions) {
+          const actionLabel = `${balance.type} - ${pendingAction.type} (${balance.amount} ${balance.token.symbol})`;
+          choices.push(actionLabel);
+          actionMap.set(actionLabel, { balance, action: pendingAction });
+        }
+      }
+    } catch (error: any) {
+      console.error(`\nError fetching balances: ${error?.message || error}\n`);
+    }
+
     if (yieldInfo.status.enter) choices.push("Enter");
     if (yieldInfo.status.exit) choices.push("Exit");
     choices.push("Back");
@@ -517,16 +694,19 @@ async function showYieldMenu(
     }
 
     try {
-      switch (action) {
-        case "View Balances":
-          await viewAndManageBalances(apiClient, yieldInfo, address, wallet);
-          break;
-        case "Enter":
-          await enterYield(apiClient, yieldInfo, address, wallet);
-          break;
-        case "Exit":
-          await exitYield(apiClient, yieldInfo, address, wallet);
-          break;
+      // Check if it's a pending action
+      const selectedActionData = actionMap.get(action);
+      if (selectedActionData) {
+        await executePendingAction(apiClient, yieldInfo, address, wallet, selectedActionData.balance, selectedActionData.action);
+      } else {
+        switch (action) {
+          case "Enter":
+            await enterYield(apiClient, yieldInfo, address, wallet);
+            break;
+          case "Exit":
+            await exitYield(apiClient, yieldInfo, address, wallet);
+            break;
+        }
       }
     } catch (error: any) {
       console.error("\nError:", error?.message || error);
@@ -568,7 +748,6 @@ async function enterYield(
   for (const [key, value] of Object.entries(args)) {
     console.log(`  ${key}: ${value}`);
   }
-  console.log("");
 
   const { confirm }: any = await Enquirer.prompt({
     type: "confirm",
@@ -582,11 +761,11 @@ async function enterYield(
   }
 
   console.log("\nCreating action...\n");
-  const action = await apiClient.enterYield(yieldInfo.id, address, args);
+  const actionResponse = await apiClient.enterYield(yieldInfo.id, address, args);
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  await signAndSubmitTransactions(action.transactions, wallet, apiClient);
+  await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
   console.log("\nYield entered successfully!\n");
 }
 
@@ -622,7 +801,6 @@ async function exitYield(
   for (const [key, value] of Object.entries(args)) {
     console.log(`  ${key}: ${value}`);
   }
-  console.log("");
 
   const { confirm }: any = await Enquirer.prompt({
     type: "confirm",
@@ -636,25 +814,18 @@ async function exitYield(
   }
 
   console.log("\nCreating action...\n");
-  const action = await apiClient.exitYield(yieldInfo.id, address, args);
+  const actionResponse = await apiClient.exitYield(yieldInfo.id, address, args);
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  await signAndSubmitTransactions(action.transactions, wallet, apiClient);
+  await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
   console.log("\nYield exited successfully!\n");
 }
 
-async function viewAndManageBalances(
-  apiClient: YieldsApiClient,
-  yieldInfo: YieldOpportunity,
-  address: string,
-  wallet: HDNodeWallet,
-): Promise<void> {
-  console.log("\nView Balances\n");
-
-  // Get balances for this yield
-  console.log("\nFetching balances...\n");
-  const balanceData = await apiClient.getBalances(yieldInfo.id, address);
+function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportunity): void {
+  console.log(`\n${"═".repeat(70)}`);
+  console.log(`${yieldInfo.metadata?.name || yieldInfo.id} - Balances`);
+  console.log(`${"═".repeat(70)}\n`);
 
   if (balanceData.balances.length === 0) {
     console.log("No balances found for this yield\n");
@@ -662,73 +833,47 @@ async function viewAndManageBalances(
   }
 
   // Display balances
-  console.log(`\n${yieldInfo.metadata?.name || yieldInfo.id} Balances:\n`);
   for (const balance of balanceData.balances) {
-    console.log(`${balance.type.toUpperCase()}:`);
+    console.log(`${"─".repeat(70)}`);
+    console.log(`${balance.type.toUpperCase()}`);
+    console.log(`${"─".repeat(70)}`);
     console.log(`  Amount: ${balance.amount} ${balance.token.symbol}`);
+    if (balance.amountUsd) {
+      const usdValue = Number.parseFloat(balance.amountUsd);
+      const usdFormatted = usdValue >= 1000000 
+        ? `$${(usdValue / 1000000).toFixed(2)}M`
+        : usdValue >= 1000
+        ? `$${(usdValue / 1000).toFixed(2)}K`
+        : `$${usdValue.toFixed(2)}`;
+      console.log(`  Value: ${usdFormatted}`);
+    }
+    if (balance.token.address) {
+      console.log(`  Token Address: ${balance.token.address}`);
+    }
+    if (balance.address) {
+      console.log(`  Balance Address: ${balance.address}`);
+    }
     console.log(`  Earning: ${balance.isEarning ? "Yes" : "No"}`);
     if (balance.pendingActions.length > 0) {
-      console.log(`  Available Actions: ${balance.pendingActions.map((a) => a.type).join(", ")}`);
+      console.log(`  Available Actions:`);
+      for (const action of balance.pendingActions) {
+        console.log(`    - ${action.type}${action.intent ? ` (${action.intent})` : ""}`);
+      }
+      console.log();
+    } else {
+      console.log(`  Available Actions: None\n`);
     }
-    console.log("");
   }
+}
 
-  // Check if there are any actions
-  const balancesWithActions = balanceData.balances.filter((b) => b.pendingActions.length > 0);
-  if (balancesWithActions.length === 0) {
-    console.log("No actions available\n");
-    return;
-  }
-
-  // Ask if user wants to perform an action
-  const { performAction }: any = await Enquirer.prompt({
-    type: "confirm",
-    name: "performAction",
-    message: "Perform an action on these balances?",
-    initial: false,
-  });
-
-  if (!performAction) {
-    return;
-  }
-
-  // Select balance
-  const balanceChoices = balancesWithActions.map((b) => ({
-    name: `${b.type} - ${b.amount} ${b.token.symbol}`,
-    value: b,
-  }));
-
-  const { selectedBalance }: any = await Enquirer.prompt({
-    type: "select",
-    name: "selectedBalance",
-    message: "Select balance:",
-    choices: balanceChoices.map((c) => c.name),
-  });
-
-  const balanceChoice = balanceChoices.find((c) => c.name === selectedBalance);
-  if (!balanceChoice) {
-    throw new Error("Invalid balance selected");
-  }
-
-  const balance = balanceChoice.value;
-
-  // Select action
-  const actionChoices = balance.pendingActions.map((a: PendingAction) => a.type);
-
-  const { selectedAction }: any = await Enquirer.prompt({
-    type: "select",
-    name: "selectedAction",
-    message: "Select action:",
-    choices: actionChoices,
-  });
-
-  const pendingAction = balance.pendingActions.find(
-    (a: PendingAction) => a.type === selectedAction,
-  );
-  if (!pendingAction) {
-    throw new Error("Invalid action selected");
-  }
-
+async function executePendingAction(
+  apiClient: YieldsApiClient,
+  yieldInfo: YieldOpportunity,
+  address: string,
+  wallet: HDNodeWallet,
+  balance: BalanceDto,
+  pendingAction: PendingAction,
+): Promise<void> {
   // Collect arguments
   const args: any = {};
   if (pendingAction.arguments) {
@@ -743,7 +888,6 @@ async function viewAndManageBalances(
   for (const [key, value] of Object.entries(args)) {
     console.log(`  ${key}: ${value}`);
   }
-  console.log("");
 
   const { confirm }: any = await Enquirer.prompt({
     type: "confirm",
@@ -756,19 +900,24 @@ async function viewAndManageBalances(
     return;
   }
 
-  console.log("\nCreating action...\n");
-  const action = await apiClient.manageYield(
-    yieldInfo.id,
-    address,
-    pendingAction.type,
-    pendingAction.passthrough,
-    args,
-  );
+  try {
+    console.log("\nCreating action...\n");
+    const actionResponse = await apiClient.manageYield(
+      yieldInfo.id,
+      address,
+      pendingAction.type,
+      pendingAction.passthrough,
+      args,
+    );
 
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  await signAndSubmitTransactions(action.transactions, wallet, apiClient);
-  console.log("\nAction completed successfully!\n");
+    await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
+    console.log("\nAction completed successfully!\n");
+  } catch (error: any) {
+    console.error("\nError:", error?.message || error);
+    throw error;
+  }
 }
 
 main().catch((error) => {
