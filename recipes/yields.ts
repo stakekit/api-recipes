@@ -102,6 +102,48 @@ interface YieldOpportunity {
   };
 }
 
+interface ValidatorDto {
+  address: string;
+  name?: string;
+  logoURI?: string;
+  website?: string;
+  rewardRate?: {
+    total: number;
+    rateType: string;
+    components?: Array<{
+      rate: number;
+      rateType: string;
+      token: TokenDto;
+      yieldSource: string;
+      description: string;
+    }>;
+  };
+  provider?: {
+    name: string;
+    uniqueId: string;
+    website?: string;
+    rank?: number;
+    preferred?: boolean;
+  };
+  commission?: number;
+  tvlUsd?: string;
+  tvl?: string;
+  tvlRaw?: string;
+  votingPower?: number;
+  preferred?: boolean;
+  minimumStake?: string;
+  remainingPossibleStake?: string;
+  remainingSlots?: number;
+  nominatorCount?: number;
+  status?: string;
+  providerId?: string;
+  pricePerShare?: string;
+  subnetId?: number;
+  subnetName?: string;
+  marketCap?: string;
+  tokenSymbol?: string;
+}
+
 interface BalanceDto {
   address: string;
   type: string;
@@ -110,6 +152,8 @@ interface BalanceDto {
   amountUsd?: string;
   token: TokenDto;
   pendingActions: PendingAction[];
+  validator?: ValidatorDto | null;
+  validators?: ValidatorDto[] | null;
   isEarning: boolean;
 }
 
@@ -176,10 +220,6 @@ class YieldsApiClient {
     );
   }
 
-  async getYield(yieldId: string): Promise<YieldOpportunity> {
-    return this.makeRequest<YieldOpportunity>("GET", `/v1/yields/${yieldId}`);
-  }
-
   async getBalances(yieldId: string, address: string): Promise<YieldBalancesDto> {
     return this.makeRequest<YieldBalancesDto>("POST", `/v1/yields/${yieldId}/balances`, {
       address,
@@ -218,16 +258,22 @@ class YieldsApiClient {
     });
   }
 
-  async getAction(actionId: string): Promise<Action> {
-    return this.makeRequest<Action>("GET", `/v1/actions/${actionId}`);
-  }
+  async getValidators(
+    yieldId: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<{ items: ValidatorDto[]; total: number; offset: number; limit: number }> {
+    const params = new URLSearchParams();
+    if (limit) params.append("limit", limit.toString());
+    if (offset) params.append("offset", offset.toString());
 
-  async getValidators(yieldId: string): Promise<any[]> {
-    const response = await this.makeRequest<{ items: any[] }>(
-      "GET",
-      `/v1/yields/${yieldId}/validators`,
-    );
-    return response.items;
+    const query = params.toString();
+    return this.makeRequest<{
+      items: ValidatorDto[];
+      total: number;
+      offset: number;
+      limit: number;
+    }>("GET", `/v1/yields/${yieldId}/validators${query ? `?${query}` : ""}`);
   }
 
   async submitTransaction(transactionId: string, signedTransaction: string): Promise<any> {
@@ -261,10 +307,10 @@ async function promptForArguments(
       apiClient &&
       (field.name === "validatorAddress" || field.name === "validatorAddresses")
     ) {
-      const validators = await apiClient.getValidators(yieldId);
+      const validatorsResponse = await apiClient.getValidators(yieldId, 100, 0);
 
-      if (validators.length > 0) {
-        const validatorChoices = validators.map((v) => ({
+      if (validatorsResponse.items.length > 0) {
+        const validatorChoices = validatorsResponse.items.map((v: ValidatorDto) => ({
           name: `${v.name || v.address} ${v.rewardRate ? `- APY: ${(v.rewardRate.total * 100).toFixed(2)}%` : ""} ${v.status ? `(${v.status})` : ""}`,
           value: v.address,
         }));
@@ -273,10 +319,10 @@ async function promptForArguments(
           type: "autocomplete",
           name: "selectedValidator",
           message,
-          choices: validatorChoices.map((c) => c.name),
+          choices: validatorChoices.map((c: { name: string; value: string }) => c.name),
         });
 
-        const selected = validatorChoices.find((c) => c.name === selectedValidator);
+        const selected = validatorChoices.find((c: { name: string; value: string }) => c.name === selectedValidator);
         if (selected) {
           result[field.name] = field.isArray ? [selected.value] : selected.value;
         }
@@ -385,7 +431,7 @@ async function signAndSubmitTransactions(
 
     try {
       console.log("Signing...");
-      let txData = JSON.parse(tx.unsignedTransaction);
+      const txData = JSON.parse(tx.unsignedTransaction);
 
       // Increment nonce by 1 for each transaction
       if (txData.nonce !== undefined && txData.nonce !== null) {
@@ -573,7 +619,7 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
   } else if (yieldInfo.token) {
     console.log(`  ${yieldInfo.token.symbol}${yieldInfo.token.name ? ` - ${yieldInfo.token.name}` : ""}${yieldInfo.token.address ? ` (${yieldInfo.token.address})` : ""}`);
   } else {
-    console.log(`  N/A`);
+    console.log("  N/A");
   }
   
   if (yieldInfo.outputToken && yieldInfo.outputToken.symbol !== yieldInfo.token?.symbol) {
@@ -652,6 +698,9 @@ async function showYieldMenu(
       console.error(`\nError fetching balances: ${error?.message || error}\n`);
     }
 
+    if (yieldInfo.mechanics?.requiresValidatorSelection) {
+      choices.push("View Validators");
+    }
     if (yieldInfo.status.enter) choices.push("Enter");
     if (yieldInfo.status.exit) choices.push("Exit");
     choices.push("Back");
@@ -673,6 +722,9 @@ async function showYieldMenu(
         await executePendingAction(apiClient, yieldInfo, address, wallet, selectedActionData.balance, selectedActionData.action);
       } else {
         switch (action) {
+          case "View Validators":
+            await viewValidators(apiClient, yieldInfo);
+            break;
           case "Enter":
             await enterYield(apiClient, yieldInfo, address, wallet);
             break;
@@ -795,6 +847,102 @@ async function exitYield(
   console.log("\nYield exited successfully!\n");
 }
 
+async function viewValidators(
+  apiClient: YieldsApiClient,
+  yieldInfo: YieldOpportunity,
+): Promise<void> {
+  const limit = 10;
+  let offset = 0;
+
+  while (true) {
+    try {
+      console.log("\nFetching validators...\n");
+      const response = await apiClient.getValidators(yieldInfo.id, limit, offset);
+
+      if (response.items.length === 0 && offset === 0) {
+        console.log("No validators found for this yield\n");
+        return;
+      }
+
+      console.log(`\n${"═".repeat(70)}`);
+      console.log(`${yieldInfo.metadata?.name || yieldInfo.id} - Validators`);
+      console.log(`Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(response.total / limit)} (${response.total} total)`);
+      console.log(`${"═".repeat(70)}\n`);
+
+      for (const validator of response.items) {
+        console.log(`${"─".repeat(70)}`);
+        console.log(`${validator.name || validator.address}`);
+        console.log(`${"─".repeat(70)}`);
+        console.log(`  Address: ${validator.address}`);
+        if (validator.status) {
+          console.log(`  Status: ${validator.status}`);
+        }
+        if (validator.rewardRate) {
+          const apy = (validator.rewardRate.total * 100).toFixed(2);
+          console.log(`  APY: ${apy}% ${validator.rewardRate.rateType}`);
+          if (validator.rewardRate.components && validator.rewardRate.components.length > 0) {
+            for (const component of validator.rewardRate.components) {
+              console.log(`    - ${(component.rate * 100).toFixed(2)}% ${component.rateType} from ${component.yieldSource}`);
+            }
+          }
+        }
+        if (validator.commission !== undefined) {
+          console.log(`  Commission: ${(validator.commission * 100).toFixed(2)}%`);
+        }
+        if (validator.tvlUsd) {
+          const tvl = Number.parseFloat(validator.tvlUsd);
+          const tvlFormatted = tvl >= 1000000 
+            ? `$${(tvl / 1000000).toFixed(2)}M`
+            : tvl >= 1000
+            ? `$${(tvl / 1000).toFixed(2)}K`
+            : `$${tvl.toFixed(2)}`;
+          console.log(`  TVL: ${tvlFormatted}`);
+        }
+        if (validator.votingPower !== undefined) {
+          console.log(`  Voting Power: ${(validator.votingPower * 100).toFixed(2)}%`);
+        }
+        if (validator.preferred) {
+          console.log("  Preferred: Yes");
+        }
+        if (validator.provider) {
+          console.log(`  Provider: ${validator.provider.name} (${validator.provider.uniqueId})`);
+        }
+        console.log();
+      }
+
+      const hasNext = offset + limit < response.total;
+      const hasPrevious = offset > 0;
+
+      const choices: string[] = [];
+      if (hasPrevious) choices.push("Previous Page");
+      if (hasNext) choices.push("Next Page");
+      choices.push("Back");
+
+      if (choices.length === 1) {
+        return;
+      }
+
+      const { action }: any = await Enquirer.prompt({
+        type: "select",
+        name: "action",
+        message: "Navigation:",
+        choices,
+      });
+
+      if (action === "Next Page") {
+        offset += limit;
+      } else if (action === "Previous Page") {
+        offset = Math.max(0, offset - limit);
+      } else {
+        return;
+      }
+    } catch (error: any) {
+      console.error(`\nError fetching validators: ${error?.message || error}\n`);
+      return;
+    }
+  }
+}
+
 function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportunity): void {
   console.log(`\n${"═".repeat(70)}`);
   console.log(`${yieldInfo.metadata?.name || yieldInfo.id} - Balances`);
@@ -826,14 +974,46 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
       console.log(`  Balance Address: ${balance.address}`);
     }
     console.log(`  Earning: ${balance.isEarning ? "Yes" : "No"}`);
+    
+    if (balance.validator) {
+      console.log(`  Validator: ${balance.validator.name || balance.validator.address}`);
+      if (balance.validator.address) {
+        console.log(`    Address: ${balance.validator.address}`);
+      }
+      if (balance.validator.rewardRate) {
+        const apy = (balance.validator.rewardRate.total * 100).toFixed(2);
+        console.log(`    APY: ${apy}% ${balance.validator.rewardRate.rateType}`);
+      }
+      if (balance.validator.commission !== undefined) {
+        console.log(`    Commission: ${(balance.validator.commission * 100).toFixed(2)}%`);
+      }
+      if (balance.validator.status) {
+        console.log(`    Status: ${balance.validator.status}`);
+      }
+    }
+    
+    if (balance.validators && balance.validators.length > 0) {
+      console.log(`  Validators (${balance.validators.length}):`);
+      for (const validator of balance.validators) {
+        console.log(`    - ${validator.name || validator.address}`);
+        if (validator.rewardRate) {
+          const apy = (validator.rewardRate.total * 100).toFixed(2);
+          console.log(`      APY: ${apy}% ${validator.rewardRate.rateType}`);
+        }
+        if (validator.commission !== undefined) {
+          console.log(`      Commission: ${(validator.commission * 100).toFixed(2)}%`);
+        }
+      }
+    }
+    
     if (balance.pendingActions.length > 0) {
-      console.log(`  Available Actions:`);
+      console.log("  Available Actions:");
       for (const action of balance.pendingActions) {
         console.log(`    - ${action.type}${action.intent ? ` (${action.intent})` : ""}`);
       }
       console.log();
     } else {
-      console.log(`  Available Actions: None\n`);
+      console.log("  Available Actions: None\n");
     }
   }
 }
