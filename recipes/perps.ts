@@ -69,8 +69,9 @@ enum SigningFormat {
 
 interface TokenDto {
   symbol: string;
-  name: string;
-  decimals: number;
+  name?: string;
+  network: string;
+  decimals?: number;
   address?: string;
   logoURI?: string;
 }
@@ -104,17 +105,18 @@ interface PerpMarket {
   leverageRange: [number, number];
   supportedMarginModes: ("isolated" | "cross")[];
   markPrice: number;
-  dailyLow24h: number;
-  dailyHigh24h: number;
-  dailyVolume24h: number;
+  priceChange24h: number;
+  priceChangePercent24h: number;
+  volume24h: number;
+  openInterest: number;
   makerFee?: string;
   takerFee?: string;
   fundingRate: string;
   fundingRateIntervalHours: number;
-  metadata?: {
+  metadata: {
     name: string;
-    logoURI?: string;
-    url?: string;
+    logoURI: string;
+    url: string;
   };
 }
 
@@ -957,7 +959,7 @@ async function showMarkets(markets: PerpMarket[]): Promise<void> {
   console.log(`Displaying ${markets.length} markets\n`);
 
   const sortedMarkets = [...markets].sort(
-    (a: PerpMarket, b: PerpMarket) => b.dailyVolume24h - a.dailyVolume24h,
+    (a: PerpMarket, b: PerpMarket) => b.volume24h - a.volume24h,
   );
 
   console.log("Markets (sorted by volume):");
@@ -966,19 +968,20 @@ async function showMarkets(markets: PerpMarket[]): Promise<void> {
     `${
       "Symbol".padEnd(10) +
       "Mark Price".padEnd(15) +
-      "Leverage".padEnd(12) +
+      "24h Change".padEnd(12) +
       "24h Volume".padEnd(15)
     }Funding Rate`,
   );
   console.log("─".repeat(120));
 
   for (const market of sortedMarkets) {
+    const changePrefix = market.priceChangePercent24h >= 0 ? "+" : "";
     console.log(
       `${
         market.baseAsset.symbol.padEnd(10) +
         `$${market.markPrice.toFixed(2)}`.padEnd(15) +
-        `${market.leverageRange[0]}-${market.leverageRange[1]}x`.padEnd(12) +
-        `$${(market.dailyVolume24h / 1000000).toFixed(2)}M`.padEnd(15)
+        `${changePrefix}${market.priceChangePercent24h.toFixed(2)}%`.padEnd(12) +
+        `$${(market.volume24h / 1000000).toFixed(2)}M`.padEnd(15)
       }${(Number.parseFloat(market.fundingRate) * 100).toFixed(4)}%`,
     );
   }
@@ -1003,7 +1006,7 @@ async function executeTrade(
   ]);
 
   // Sort markets by volume for better defaults in autocomplete
-  const sortedMarkets = [...markets].sort((a, b) => b.dailyVolume24h - a.dailyVolume24h);
+  const sortedMarkets = [...markets].sort((a, b) => b.volume24h - a.volume24h);
 
   const choices = sortedMarkets.map((m) => ({
     display: `${m.baseAsset.symbol} ($${m.markPrice.toFixed(2)}) - ${m.leverageRange[1]}x max`,
