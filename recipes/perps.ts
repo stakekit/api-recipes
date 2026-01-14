@@ -129,8 +129,6 @@ interface PerpPosition {
   margin: number;
   unrealizedPnl: number;
   liquidationPrice?: number;
-  takeProfit?: number;
-  stopLoss?: number;
   pendingActions?: any[];
 }
 
