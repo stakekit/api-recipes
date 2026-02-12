@@ -5,10 +5,10 @@
  * via the Yield.xyz Perps API using ethers.js for transaction signing.
  */
 
-import * as dotenv from "dotenv";
-import { HDNodeWallet } from "ethers";
 import "cross-fetch/polyfill";
+import * as dotenv from "dotenv";
 import Enquirer from "enquirer";
+import { HDNodeWallet } from "ethers";
 import { request } from "../utils/requests";
 
 dotenv.config();
@@ -417,8 +417,8 @@ async function signTransaction(tx: ApiTransaction, wallet: HDNodeWallet): Promis
   if (!tx.signablePayload) throw new Error("Nothing to sign");
 
   if (tx.signingFormat === SigningFormat.EIP712_TYPED_DATA) {
-    const { domain, types, message } = tx.signablePayload as any;
-    return wallet.signTypedData(domain, types, message);
+    const { EIP712Domain, types, message } = tx.signablePayload as any;
+    return wallet.signTypedData(EIP712Domain, types, message);
   }
 
   // Regular transaction
@@ -554,7 +554,7 @@ async function main() {
         message: "Select perpetuals provider:",
         choices: providerChoices,
       });
-      
+
       const selected = providerChoices.find((c) => c.name === result.selected);
       if (!selected) throw new Error("Invalid provider selected");
       providerId = selected.value;
