@@ -206,6 +206,42 @@ interface ApiAction {
   action: PerpActionTypes;
   status: string;
   transactions: ApiTransaction[];
+  signedMetadata?: string;
+}
+
+// ===== Signed Metadata Verification =====
+
+const SIGNED_METADATA_PUBLIC_KEY =
+  "-----BEGIN PUBLIC KEY-----\n" +
+  "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAEh6fd7pBTiuxafsrxZh948/44hQoLtVqDac6QRrgAYgTA5gO9vLrCLoAo1MAgG4NMjZtQ/ESxj0VA4bk7UTVAfQ==" +
+  "\n-----END PUBLIC KEY-----";
+
+function verifySignedMetadata(hex: string, summary?: Record<string, any>): boolean {
+  try {
+    const crypto = require("crypto");
+    const buf = Buffer.from(hex, "hex");
+    const sigIdx = buf.indexOf(0x15);
+    if (sigIdx < 0) return false;
+    const metadata = buf.subarray(0, sigIdx);
+    const signature = buf.subarray(sigIdx + 2, sigIdx + 2 + buf[sigIdx + 1]);
+    const valid = crypto.createVerify("SHA256").update(metadata).verify(SIGNED_METADATA_PUBLIC_KEY, signature);
+    if (!valid) return false;
+
+    // Parse and verify all TLV fields
+    let i = 0;
+    while (i < metadata.length) {
+      const tag = metadata[i], len = metadata[i + 1], val = metadata.subarray(i + 2, i + 2 + len);
+      if (tag === 0x01 && val[0] !== 0x2b) return false;                            // structure_type
+      if (tag === 0x02 && val[0] !== 0x01) return false;                             // version
+      if (tag === 0xd0 && val[0] > 0x03) return false;                              // action_type (0-3)
+      if (summary && tag === 0xd1 && val.readUInt32BE(0) !== summary.assetId) return false;  // asset_id
+      if (summary && tag === 0x24 && val.toString("utf8") !== summary.asset) return false;   // asset_ticker
+      i += 2 + len;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ===== API Client =====
@@ -417,8 +453,12 @@ async function signTransaction(tx: ApiTransaction, wallet: HDNodeWallet): Promis
   if (!tx.signablePayload) throw new Error("Nothing to sign");
 
   if (tx.signingFormat === SigningFormat.EIP712_TYPED_DATA) {
-    const { EIP712Domain, types, message } = tx.signablePayload as any;
-    return wallet.signTypedData(EIP712Domain, types, message);
+    const { domain, types, message } = tx.signablePayload as any;
+
+    // ethers v6 handles EIP712Domain separately via the domain parameter —
+    // strip it from types to avoid "ambiguous primary types" errors
+    const { EIP712Domain: _, ...signingTypes } = types;
+    return wallet.signTypedData(domain, signingTypes, message);
   }
 
   // Regular transaction
@@ -475,7 +515,7 @@ async function processTransactions(
         }
         console.log("   Status: On the order book");
       } else {
-        console.log(`Transaction ID: ${tx.id}`);
+        console.log(`Transaction status: ${result.status} (Transaction ID: ${tx.id})`);
         if (result.transactionHash) {
           console.log(`   Hash: ${result.transactionHash}`);
         }
@@ -483,6 +523,7 @@ async function processTransactions(
           console.log(`   Link: ${result.link}`);
         }
       }
+
     } catch (error: any) {
       console.error(`Failed to submit transaction ${tx.id}: ${error.message}`);
       throw error;
@@ -1090,6 +1131,12 @@ async function executeTrade(
   console.log("\nCreating action via API...\n");
   const actionResponse = await apiClient.createAction(providerId, actionType, address, args);
 
+  // Verify signed metadata if present on the action response
+  if (actionResponse.signedMetadata) {
+    const metadataValid = verifySignedMetadata(actionResponse.signedMetadata);
+    console.log(`   Signed Metadata: ${metadataValid ? "✓ verified" : "✗ invalid"}`);
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
   await processTransactions(actionResponse.transactions, wallet, apiClient);
@@ -1174,6 +1221,12 @@ async function executeAction(
 
   console.log("\nCreating action via API...\n");
   const actionResponse = await apiClient.createAction(providerId, actionType, address, actionArgs);
+
+  // Verify signed metadata if present on the action response
+  if (actionResponse.signedMetadata) {
+    const metadataValid = verifySignedMetadata(actionResponse.signedMetadata);
+    console.log(`   Signed Metadata: ${metadataValid ? "✓ verified" : "✗ invalid"}`);
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
