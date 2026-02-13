@@ -220,25 +220,38 @@ function verifySignedMetadata(hex: string, summary?: Record<string, any>): boole
   try {
     const crypto = require("crypto");
     const buf = Buffer.from(hex, "hex");
-    const sigIdx = buf.indexOf(0x15);
-    if (sigIdx < 0) return false;
-    const metadata = buf.subarray(0, sigIdx);
-    const signature = buf.subarray(sigIdx + 2, sigIdx + 2 + buf[sigIdx + 1]);
-    const valid = crypto.createVerify("SHA256").update(metadata).verify(SIGNED_METADATA_PUBLIC_KEY, signature);
-    if (!valid) return false;
 
-    // Parse and verify all TLV fields
+    let metadata: Buffer | null = null;
+    let signature: Buffer | null = null;
+
+    // Sequential TLV parse — treat tag 0x15 as the signature envelope
     let i = 0;
-    while (i < metadata.length) {
-      const tag = metadata[i], len = metadata[i + 1], val = metadata.subarray(i + 2, i + 2 + len);
-      if (tag === 0x01 && val[0] !== 0x2b) return false;                            // structure_type
-      if (tag === 0x02 && val[0] !== 0x01) return false;                             // version
-      if (tag === 0xd0 && val[0] > 0x03) return false;                              // action_type (0-3)
+    while (i < buf.length) {
+      if (i + 1 >= buf.length) return false;                 // need at least tag + len
+      const tag = buf[i];
+      const len = buf[i + 1];
+      if (i + 2 + len > buf.length) return false;            // value would exceed buffer
+      const val = buf.subarray(i + 2, i + 2 + len);
+
+      if (tag === 0x15) {
+        metadata = buf.subarray(0, i);                        // everything before this TLV
+        signature = val;
+        break;
+      }
+
+      // Per-tag field validations
+      if (tag === 0x01 && val[0] !== 0x2b) return false;                                     // structure_type
+      if (tag === 0x02 && val[0] !== 0x01) return false;                                     // version
+      if (tag === 0xd0 && val[0] > 0x03) return false;                                      // action_type (0-3)
       if (summary && tag === 0xd1 && val.readUInt32BE(0) !== summary.assetId) return false;  // asset_id
       if (summary && tag === 0x24 && val.toString("utf8") !== summary.asset) return false;   // asset_ticker
+
       i += 2 + len;
     }
-    return true;
+
+    if (!metadata || !signature) return false;
+
+    return crypto.createVerify("SHA256").update(metadata).verify(SIGNED_METADATA_PUBLIC_KEY, signature);
   } catch {
     return false;
   }
