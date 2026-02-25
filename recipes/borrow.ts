@@ -283,8 +283,8 @@ class BorrowApiClient {
     const query = new URLSearchParams();
     if (params?.integrationId) query.append("integrationId", params.integrationId);
     if (params?.network) query.append("network", params.network);
-    if (params?.limit) query.append("limit", params.limit.toString());
-    if (params?.offset) query.append("offset", params.offset.toString());
+    if (params?.limit !== undefined) query.append("limit", params.limit.toString());
+    if (params?.offset !== undefined) query.append("offset", params.offset.toString());
 
     const queryString = query.toString();
     return this.makeRequest<PaginatedResponse<MarketDto>>(
@@ -332,8 +332,8 @@ class BorrowApiClient {
     status?: string;
   }): Promise<PaginatedResponse<ActionDto>> {
     const query = new URLSearchParams();
-    if (params?.offset) query.append("offset", params.offset.toString());
-    if (params?.limit) query.append("limit", params.limit.toString());
+    if (params?.offset !== undefined) query.append("offset", params.offset.toString());
+    if (params?.limit !== undefined) query.append("limit", params.limit.toString());
     if (params?.address) query.append("address", params.address);
     if (params?.integrationId) query.append("integrationId", params.integrationId);
     if (params?.action) query.append("action", params.action);
