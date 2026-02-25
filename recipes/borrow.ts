@@ -626,21 +626,12 @@ async function main() {
     console.log("\nYield.xyz Borrow API\n");
 
     const apiUrl = process.env.BORROW_API_URL || "https://borrow.yield.xyz";
-    const apiKey = process.env.BORROW_API_KEY;
-
-    if (!apiKey) {
-      console.log("Error: BORROW_API_KEY environment variable is required");
-      return;
-    }
+    const apiKey = process.env.BORROW_API_KEY as string;
 
     const apiClient = new BorrowApiClient(apiUrl, apiKey);
     console.log(`API URL: ${apiUrl}\n`);
 
-    const mnemonic = process.env.MNEMONIC;
-    if (!mnemonic) {
-      console.log("MNEMONIC environment variable is required");
-      return;
-    }
+    const mnemonic = process.env.MNEMONIC as string;
 
     const walletIndex = Number.parseInt(process.env.WALLET_INDEX || "0");
     const derivationPath = `m/44'/60'/0'/0/${walletIndex}`;
