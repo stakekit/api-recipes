@@ -406,7 +406,9 @@ async function promptFromSchema(
     }
 
     if (prop.enum || prop.options) {
-      const choices = prop.options || (prop.enum as string[]);
+      const baseChoices = prop.options || (prop.enum as string[]);
+      const skipChoice = "<skip>";
+      const choices = isRequired ? baseChoices : [skipChoice, ...baseChoices];
       const response: any = await Enquirer.prompt({
         type: "select",
         name: "value",
@@ -414,6 +416,7 @@ async function promptFromSchema(
         choices,
         initial: prop.default,
       } as any);
+      if (!isRequired && response.value === skipChoice) continue;
       result[name] = response.value;
     } else if (type === "boolean") {
       const response: any = await Enquirer.prompt({
@@ -525,8 +528,15 @@ async function processTransactions(
     console.log(`\nStep ${i + 1}/${transactions.length}: ${tx.type}`);
 
     if (!tx.signablePayload) {
-      console.log("Skipping: No signable payload");
-      continue;
+      if (
+        tx.status === TransactionStatus.BROADCASTED ||
+        tx.status === TransactionStatus.PENDING ||
+        tx.status === TransactionStatus.SIGNED
+      ) {
+        console.log(`  No local signature required (status: ${tx.status})`);
+        continue;
+      }
+      throw new Error(`No signable payload for transaction ${tx.id} (status: ${tx.status})`);
     }
 
     try {
@@ -574,11 +584,14 @@ async function processTransactions(
         }
 
         if (!confirmed) {
-          console.log("\n  Confirmation timeout, continuing...");
+          throw new Error(`Transaction ${tx.id} confirmation timeout after ${maxAttempts * 2}s`);
         }
       } else {
         console.log(`  Status: ${result.status}`);
         if (result.error) console.error(`  Error: ${result.error}`);
+        if (result.status === TransactionStatus.FAILED) {
+          throw new Error(result.error || `Transaction ${tx.id} failed`);
+        }
       }
     } catch (error: any) {
       console.error(`  Failed: ${error.message}`);
@@ -640,7 +653,10 @@ async function main() {
 
     const mnemonic = process.env.MNEMONIC as string;
 
-    const walletIndex = Number.parseInt(process.env.WALLET_INDEX || "0");
+    const walletIndex = Number.parseInt(process.env.WALLET_INDEX ?? "0", 10);
+    if (!Number.isInteger(walletIndex) || walletIndex < 0) {
+      throw new Error("WALLET_INDEX must be a non-negative integer");
+    }
     const derivationPath = `m/44'/60'/0'/0/${walletIndex}`;
     const wallet = HDNodeWallet.fromPhrase(mnemonic, undefined, derivationPath);
     const address = wallet.address;
@@ -649,6 +665,7 @@ async function main() {
     await selectIntegrationFlow(apiClient, address, wallet);
   } catch (e: any) {
     console.error("Fatal Error:", e?.message || e);
+    throw e;
   }
 }
 
