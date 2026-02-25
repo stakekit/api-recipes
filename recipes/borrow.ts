@@ -494,6 +494,13 @@ async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promis
     return wallet.signTypedData(domain, signingTypes, message);
   }
 
+  if (
+    tx.signingFormat !== SigningFormat.EVM_TRANSACTION &&
+    tx.signingFormat !== undefined
+  ) {
+    throw new Error(`Unsupported signing format: ${tx.signingFormat}`);
+  }
+
   const txData =
     typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
   return wallet.signTransaction(txData);
