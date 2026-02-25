@@ -1,5 +1,7 @@
 import "cross-fetch/polyfill";
 
+const normalizeKey = (key: string) => key.toLowerCase().replace(/[-_]/g, "");
+
 const SENSITIVE_KEYS = new Set([
   "signedpayload",
   "signedtransaction",
@@ -10,6 +12,8 @@ const SENSITIVE_KEYS = new Set([
   "password",
   "accesstoken",
   "authtoken",
+  "authorization",
+  "refreshtoken",
 ]);
 
 function redactSensitive(obj: unknown): unknown {
@@ -18,7 +22,7 @@ function redactSensitive(obj: unknown): unknown {
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+    if (SENSITIVE_KEYS.has(normalizeKey(key))) {
       result[key] = "[REDACTED]";
     } else if (typeof value === "object" && value !== null) {
       result[key] = redactSensitive(value);
