@@ -382,6 +382,29 @@ function formatHealthFactor(value: string | null): string {
   return `${num.toFixed(2)}${indicator}`;
 }
 
+/**
+ * Sanitize action args before sending to the API:
+ * - Remove `network` (API infers it from marketId; sending it causes validation error).
+ * - When both `amount` and `amountRaw` are present, send only `amount` so the user
+ *   can provide human-readable amount without being forced to also send amountRaw.
+ */
+function sanitizeActionArgs(args: ArgumentsDto): ArgumentsDto {
+  const { network: _n, amount, amountRaw, ...rest } = args;
+  const out: ArgumentsDto = { ...rest };
+  if (amount !== undefined && amount !== "" && amountRaw !== undefined && amountRaw !== "") {
+    out.amount = amount;
+    // Omit amountRaw when amount is provided (API accepts either)
+  } else {
+    if (amount !== undefined && amount !== "") out.amount = amount;
+    if (amountRaw !== undefined && amountRaw !== "") out.amountRaw = amountRaw;
+  }
+  return out;
+}
+
+function hasValue(v: any): boolean {
+  return v !== undefined && v !== null && v !== "";
+}
+
 async function promptFromSchema(
   schema: ArgumentSchemaDto,
   skipFields: string[] = [],
@@ -392,6 +415,10 @@ async function promptFromSchema(
 
   for (const [name, prop] of Object.entries(properties)) {
     if (skipFields.includes(name)) continue;
+
+    // "Provide either amount or amountRaw" — skip the other when one is already set
+    if (name === "amountRaw" && hasValue(result.amount)) continue;
+    if (name === "amount" && hasValue(result.amountRaw)) continue;
 
     const isRequired = required.includes(name);
     const type = Array.isArray(prop.type) ? prop.type[0] : prop.type || "string";
@@ -1050,7 +1077,22 @@ async function executeActionFlow(
   const market = selected.market;
   const args: ArgumentsDto = { marketId: market.id };
 
-  const collected = await promptFromSchema(actionDef.schema, ["marketId"]);
+  // For isolated-market protocols (e.g. Morpho), collateral token is determined by the market —
+  // infer tokenAddress and skip prompting. For pool-based (e.g. Aave), user must choose.
+  const skipFields: string[] = ["marketId"];
+  if (
+    market.type === "isolated" &&
+    actionType === BorrowActionType.SUPPLY &&
+    market.collateralTokens.length > 0
+  ) {
+    const collateralToken = market.collateralTokens[0].token;
+    if (collateralToken.address) {
+      args.tokenAddress = collateralToken.address;
+      skipFields.push("tokenAddress");
+    }
+  }
+
+  const collected = await promptFromSchema(actionDef.schema, skipFields);
   Object.assign(args, collected);
 
   console.log("\nAction Summary:");
@@ -1079,11 +1121,12 @@ async function executeActionFlow(
   }
 
   console.log("\nCreating action...\n");
+  const argsForApi = sanitizeActionArgs(args);
   const actionResponse = await apiClient.createAction({
     integrationId: integration.id,
     action: actionType,
     address,
-    args,
+    args: argsForApi,
   });
 
   if (actionResponse.metadata) {
@@ -1155,11 +1198,12 @@ async function executePendingAction(
   }
 
   console.log("\nCreating action...\n");
+  const argsForApi = sanitizeActionArgs(args);
   const actionResponse = await apiClient.createAction({
     integrationId: integration.id,
     action: pendingAction.type,
     address,
-    args,
+    args: argsForApi,
   });
 
   if (actionResponse.metadata) {
