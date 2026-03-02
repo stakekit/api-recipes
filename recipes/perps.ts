@@ -227,11 +227,20 @@ function verifySignedMetadata(hex: string, summary?: Record<string, any>): boole
     // Sequential TLV parse — treat tag 0x15 as the signature envelope
     let i = 0;
     while (i < buf.length) {
-      if (i + 1 >= buf.length) return false;                 // need at least tag + len
-      const tag = buf[i];
-      const len = buf[i + 1];
-      if (i + 2 + len > buf.length) return false;            // value would exceed buffer
-      const val = buf.subarray(i + 2, i + 2 + len);
+      // DER extended tag encoding: 0x81 prefix for tags > 0x7F
+      let tagLen = 1;
+      let tag = buf[i];
+      if (tag === 0x81 && i + 1 < buf.length && buf[i + 1] > 0x7f) {
+        tag = buf[i + 1];
+        tagLen = 2;
+      }
+
+      const lenOffset = i + tagLen;
+      if (lenOffset >= buf.length) return false;              // need at least length byte
+      const len = buf[lenOffset];
+      const valOffset = lenOffset + 1;
+      if (valOffset + len > buf.length) return false;         // value would exceed buffer
+      const val = buf.subarray(valOffset, valOffset + len);
 
       if (tag === 0x15) {
         metadata = buf.subarray(0, i);                        // everything before this TLV
@@ -246,7 +255,7 @@ function verifySignedMetadata(hex: string, summary?: Record<string, any>): boole
       if (summary && tag === 0xd1 && val.readUInt32BE(0) !== summary.assetId) return false;  // asset_id
       if (summary && tag === 0x24 && val.toString("utf8") !== summary.asset) return false;   // asset_ticker
 
-      i += 2 + len;
+      i = valOffset + len;
     }
 
     if (!metadata || !signature) return false;
