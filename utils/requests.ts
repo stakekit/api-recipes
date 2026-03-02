@@ -1,5 +1,38 @@
 import "cross-fetch/polyfill";
 
+const normalizeKey = (key: string) => key.toLowerCase().replace(/[-_]/g, "");
+
+const SENSITIVE_KEYS = new Set([
+  "signedpayload",
+  "signedtransaction",
+  "signature",
+  "privatekey",
+  "mnemonic",
+  "secret",
+  "password",
+  "accesstoken",
+  "authtoken",
+  "authorization",
+  "refreshtoken",
+]);
+
+function redactSensitive(obj: unknown): unknown {
+  if (typeof obj !== "object" || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(redactSensitive);
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (SENSITIVE_KEYS.has(normalizeKey(key))) {
+      result[key] = "[REDACTED]";
+    } else if (typeof value === "object" && value !== null) {
+      result[key] = redactSensitive(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /**
  * Generic HTTP request helper with logging
  */
@@ -14,7 +47,7 @@ export async function request<T>(
 
   console.log(`...calling ${method} ${url}...`);
   if (body) {
-    console.log(`...with body ${JSON.stringify(body)}...`);
+    console.log(`...with body ${JSON.stringify(redactSensitive(body))}...`);
   }
 
   const headers: Record<string, string> = {
