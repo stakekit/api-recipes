@@ -1093,21 +1093,23 @@ async function executeActionFlow(
   const market = selected.market;
   const args: ArgumentsDto = { marketId: market.id, network };
 
-  // Network is already selected upfront — skip prompting for it again.
   const skipFields: string[] = ["marketId", "network"];
 
-  // For isolated-market protocols (e.g. Morpho), collateral token is determined by the market —
-  // infer tokenAddress and skip prompting. For pool-based (e.g. Aave), user must choose.
+  // Infer tokenAddress from the selected market so the user isn't prompted for it.
+  // - Borrow/Repay/Withdraw: the relevant token is the market's loanToken.
+  // - Supply on isolated markets (Morpho): collateral is fixed by the market.
+  // - Supply on pool-based (Aave): loanToken is also the token being supplied.
   if (
     market.type === "isolated" &&
     actionType === BorrowActionType.SUPPLY &&
-    market.collateralTokens.length > 0
+    market.collateralTokens.length > 0 &&
+    market.collateralTokens[0].token.address
   ) {
-    const collateralToken = market.collateralTokens[0].token;
-    if (collateralToken.address) {
-      args.tokenAddress = collateralToken.address;
-      skipFields.push("tokenAddress");
-    }
+    args.tokenAddress = market.collateralTokens[0].token.address;
+    skipFields.push("tokenAddress");
+  } else if (market.loanToken.address) {
+    args.tokenAddress = market.loanToken.address;
+    skipFields.push("tokenAddress");
   }
 
   const collected = await promptFromSchema(actionDef.schema, skipFields);
