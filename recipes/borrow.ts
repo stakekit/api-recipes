@@ -389,15 +389,21 @@ function formatHealthFactor(value: string | null): string {
  *   can provide human-readable amount without being forced to also send amountRaw.
  */
 function sanitizeActionArgs(args: ArgumentsDto): ArgumentsDto {
-  const { network: _n, amount, amountRaw, ...rest } = args;
+  const { network: _n, amount, amountRaw, collateralAmount, collateralAmountRaw, ...rest } = args;
   const out: ArgumentsDto = { ...rest };
-  if (amount !== undefined && amount !== "" && amountRaw !== undefined && amountRaw !== "") {
+
+  if (hasValue(amount)) {
     out.amount = amount;
-    // Omit amountRaw when amount is provided (API accepts either)
-  } else {
-    if (amount !== undefined && amount !== "") out.amount = amount;
-    if (amountRaw !== undefined && amountRaw !== "") out.amountRaw = amountRaw;
+  } else if (hasValue(amountRaw)) {
+    out.amountRaw = amountRaw;
   }
+
+  if (hasValue(collateralAmount)) {
+    out.collateralAmount = collateralAmount;
+  } else if (hasValue(collateralAmountRaw)) {
+    out.collateralAmountRaw = collateralAmountRaw;
+  }
+
   return out;
 }
 
@@ -416,9 +422,11 @@ async function promptFromSchema(
   for (const [name, prop] of Object.entries(properties)) {
     if (skipFields.includes(name)) continue;
 
-    // "Provide either amount or amountRaw" — skip the other when one is already set
+    // "Provide either X or XRaw" — skip the raw variant when the human-readable one is set, and vice versa
     if (name === "amountRaw" && hasValue(result.amount)) continue;
     if (name === "amount" && hasValue(result.amountRaw)) continue;
+    if (name === "collateralAmountRaw" && hasValue(result.collateralAmount)) continue;
+    if (name === "collateralAmount" && hasValue(result.collateralAmountRaw)) continue;
 
     const isRequired = required.includes(name);
     const type = Array.isArray(prop.type) ? prop.type[0] : prop.type || "string";
@@ -882,9 +890,13 @@ async function viewPosition(
 
   for (const supply of position.supplyBalances) {
     for (const pa of supply.pendingActions) {
+      const enrichedAction = {
+        ...pa,
+        args: { ...pa.args, tokenAddress: pa.args.tokenAddress || supply.tokenAddress },
+      };
       allPendingActions.push({
         display: `[Supply] ${supply.tokenSymbol} - ${pa.label}`,
-        pendingAction: pa,
+        pendingAction: enrichedAction,
         source: `${supply.tokenSymbol} supply`,
       });
     }
@@ -892,9 +904,13 @@ async function viewPosition(
 
   for (const debt of position.debtBalances) {
     for (const pa of debt.pendingActions) {
+      const enrichedAction = {
+        ...pa,
+        args: { ...pa.args, tokenAddress: pa.args.tokenAddress || debt.tokenAddress },
+      };
       allPendingActions.push({
         display: `[Debt] ${debt.tokenSymbol} - ${pa.label}`,
-        pendingAction: pa,
+        pendingAction: enrichedAction,
         source: `${debt.tokenSymbol} debt`,
       });
     }
