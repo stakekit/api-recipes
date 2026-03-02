@@ -1075,11 +1075,13 @@ async function executeActionFlow(
   if (!selected) throw new Error("Invalid market selected");
 
   const market = selected.market;
-  const args: ArgumentsDto = { marketId: market.id };
+  const args: ArgumentsDto = { marketId: market.id, network };
+
+  // Network is already selected upfront — skip prompting for it again.
+  const skipFields: string[] = ["marketId", "network"];
 
   // For isolated-market protocols (e.g. Morpho), collateral token is determined by the market —
   // infer tokenAddress and skip prompting. For pool-based (e.g. Aave), user must choose.
-  const skipFields: string[] = ["marketId"];
   if (
     market.type === "isolated" &&
     actionType === BorrowActionType.SUPPLY &&
