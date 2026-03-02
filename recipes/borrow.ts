@@ -1158,7 +1158,7 @@ async function executePendingAction(
 ): Promise<void> {
   const actionDef = integration.actions.find((a) => a.id === pendingAction.type);
   const schema = actionDef?.schema;
-  const preFilledArgs = { ...pendingAction.args };
+  const preFilledArgs: ArgumentsDto = { ...pendingAction.args, network };
   const preFilledFields = Object.keys(preFilledArgs).filter(
     (k) => preFilledArgs[k] !== undefined && preFilledArgs[k] !== null,
   );
