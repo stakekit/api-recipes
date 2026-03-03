@@ -1096,21 +1096,32 @@ async function executeActionFlow(
 
   const skipFields: string[] = ["marketId", "network"];
 
-  // Infer tokenAddress from the selected market so the user isn't prompted for it.
-  // - Borrow/Repay/Withdraw: the relevant token is the market's loanToken.
+  // Infer tokenAddress from the selected market when the action unambiguously targets a specific token.
   // - Supply on isolated markets (Morpho): collateral is fixed by the market.
-  // - Supply on pool-based (Aave): loanToken is also the token being supplied.
-  if (
-    market.type === "isolated" &&
-    actionType === BorrowActionType.SUPPLY &&
-    market.collateralTokens.length > 0 &&
-    market.collateralTokens[0].token.address
-  ) {
-    args.tokenAddress = market.collateralTokens[0].token.address;
-    skipFields.push("tokenAddress");
-  } else if (market.loanToken.address) {
-    args.tokenAddress = market.loanToken.address;
-    skipFields.push("tokenAddress");
+  // - Pool-based (Aave): all actions target the market's loanToken.
+  // - Borrow/Repay on any market type: always the loanToken.
+  // - Isolated withdraw / collateral toggles: leave user-driven (could target collateral).
+  const schemaHasTokenAddress = Boolean(actionDef.schema.properties?.tokenAddress);
+  if (schemaHasTokenAddress) {
+    if (
+      market.type === "isolated" &&
+      actionType === BorrowActionType.SUPPLY &&
+      market.collateralTokens.length > 0 &&
+      market.collateralTokens[0].token.address
+    ) {
+      args.tokenAddress = market.collateralTokens[0].token.address;
+      skipFields.push("tokenAddress");
+    } else if (
+      (
+        market.type === "pool" ||
+        actionType === BorrowActionType.BORROW ||
+        actionType === BorrowActionType.REPAY
+      ) &&
+      market.loanToken.address
+    ) {
+      args.tokenAddress = market.loanToken.address;
+      skipFields.push("tokenAddress");
+    }
   }
 
   const collected = await promptFromSchema(actionDef.schema, skipFields);
