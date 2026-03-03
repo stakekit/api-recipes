@@ -422,11 +422,12 @@ async function promptFromSchema(
   for (const [name, prop] of Object.entries(properties)) {
     if (skipFields.includes(name)) continue;
 
-    // "Provide either X or XRaw" — skip the raw variant when the human-readable one is set, and vice versa
-    if (name === "amountRaw" && hasValue(result.amount)) continue;
-    if (name === "amount" && hasValue(result.amountRaw)) continue;
-    if (name === "collateralAmountRaw" && hasValue(result.collateralAmount)) continue;
-    if (name === "collateralAmount" && hasValue(result.collateralAmountRaw)) continue;
+    // "Provide either X or XRaw" — skip the raw variant when the human-readable one is set, and vice versa.
+    // Also check skipFields to handle values pre-filled upstream (which bypass result).
+    if (name === "amountRaw" && (hasValue(result.amount) || skipFields.includes("amount"))) continue;
+    if (name === "amount" && (hasValue(result.amountRaw) || skipFields.includes("amountRaw"))) continue;
+    if (name === "collateralAmountRaw" && (hasValue(result.collateralAmount) || skipFields.includes("collateralAmount"))) continue;
+    if (name === "collateralAmount" && (hasValue(result.collateralAmountRaw) || skipFields.includes("collateralAmountRaw"))) continue;
 
     const isRequired = required.includes(name);
     const type = Array.isArray(prop.type) ? prop.type[0] : prop.type || "string";
