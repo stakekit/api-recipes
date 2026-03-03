@@ -382,6 +382,35 @@ function formatHealthFactor(value: string | null): string {
   return `${num.toFixed(2)}${indicator}`;
 }
 
+/**
+ * Sanitize action args before sending to the API:
+ * - Remove `network` (API infers it from marketId; sending it causes validation error).
+ * - When both `amount` and `amountRaw` are present, send only `amount` so the user
+ *   can provide human-readable amount without being forced to also send amountRaw.
+ */
+function sanitizeActionArgs(args: ArgumentsDto): ArgumentsDto {
+  const { network: _n, amount, amountRaw, collateralAmount, collateralAmountRaw, ...rest } = args;
+  const out: ArgumentsDto = { ...rest };
+
+  if (hasValue(amount)) {
+    out.amount = amount;
+  } else if (hasValue(amountRaw)) {
+    out.amountRaw = amountRaw;
+  }
+
+  if (hasValue(collateralAmount)) {
+    out.collateralAmount = collateralAmount;
+  } else if (hasValue(collateralAmountRaw)) {
+    out.collateralAmountRaw = collateralAmountRaw;
+  }
+
+  return out;
+}
+
+function hasValue(v: any): boolean {
+  return v !== undefined && v !== null && v !== "";
+}
+
 async function promptFromSchema(
   schema: ArgumentSchemaDto,
   skipFields: string[] = [],
@@ -392,6 +421,13 @@ async function promptFromSchema(
 
   for (const [name, prop] of Object.entries(properties)) {
     if (skipFields.includes(name)) continue;
+
+    // "Provide either X or XRaw" — skip the raw variant when the human-readable one is set, and vice versa.
+    // Also check skipFields to handle values pre-filled upstream (which bypass result).
+    if (name === "amountRaw" && (hasValue(result.amount) || skipFields.includes("amount"))) continue;
+    if (name === "amount" && (hasValue(result.amountRaw) || skipFields.includes("amountRaw"))) continue;
+    if (name === "collateralAmountRaw" && (hasValue(result.collateralAmount) || skipFields.includes("collateralAmount"))) continue;
+    if (name === "collateralAmount" && (hasValue(result.collateralAmountRaw) || skipFields.includes("collateralAmountRaw"))) continue;
 
     const isRequired = required.includes(name);
     const type = Array.isArray(prop.type) ? prop.type[0] : prop.type || "string";
@@ -451,7 +487,7 @@ async function promptFromSchema(
         type: "input",
         name: "value",
         message,
-        initial: (prop.placeholder || prop.default) as string,
+        initial: isRequired ? (prop.placeholder || prop.default) as string : undefined,
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
           if (isRequired && input === "") return `${prop.label || name} is required`;
@@ -855,9 +891,13 @@ async function viewPosition(
 
   for (const supply of position.supplyBalances) {
     for (const pa of supply.pendingActions) {
+      const enrichedAction = {
+        ...pa,
+        args: { ...pa.args, tokenAddress: pa.args.tokenAddress || supply.tokenAddress },
+      };
       allPendingActions.push({
         display: `[Supply] ${supply.tokenSymbol} - ${pa.label}`,
-        pendingAction: pa,
+        pendingAction: enrichedAction,
         source: `${supply.tokenSymbol} supply`,
       });
     }
@@ -865,9 +905,13 @@ async function viewPosition(
 
   for (const debt of position.debtBalances) {
     for (const pa of debt.pendingActions) {
+      const enrichedAction = {
+        ...pa,
+        args: { ...pa.args, tokenAddress: pa.args.tokenAddress || debt.tokenAddress },
+      };
       allPendingActions.push({
         display: `[Debt] ${debt.tokenSymbol} - ${pa.label}`,
-        pendingAction: pa,
+        pendingAction: enrichedAction,
         source: `${debt.tokenSymbol} debt`,
       });
     }
@@ -1048,9 +1092,39 @@ async function executeActionFlow(
   if (!selected) throw new Error("Invalid market selected");
 
   const market = selected.market;
-  const args: ArgumentsDto = { marketId: market.id };
+  const args: ArgumentsDto = { marketId: market.id, network };
 
-  const collected = await promptFromSchema(actionDef.schema, ["marketId"]);
+  const skipFields: string[] = ["marketId", "network"];
+
+  // Infer tokenAddress from the selected market when the action unambiguously targets a specific token.
+  // - Supply on isolated markets (Morpho): collateral is fixed by the market.
+  // - Pool-based (Aave): all actions target the market's loanToken.
+  // - Borrow/Repay on any market type: always the loanToken.
+  // - Isolated withdraw / collateral toggles: leave user-driven (could target collateral).
+  const schemaHasTokenAddress = Boolean(actionDef.schema.properties?.tokenAddress);
+  if (schemaHasTokenAddress) {
+    if (
+      market.type === "isolated" &&
+      actionType === BorrowActionType.SUPPLY &&
+      market.collateralTokens.length > 0 &&
+      market.collateralTokens[0].token.address
+    ) {
+      args.tokenAddress = market.collateralTokens[0].token.address;
+      skipFields.push("tokenAddress");
+    } else if (
+      (
+        market.type === "pool" ||
+        actionType === BorrowActionType.BORROW ||
+        actionType === BorrowActionType.REPAY
+      ) &&
+      market.loanToken.address
+    ) {
+      args.tokenAddress = market.loanToken.address;
+      skipFields.push("tokenAddress");
+    }
+  }
+
+  const collected = await promptFromSchema(actionDef.schema, skipFields);
   Object.assign(args, collected);
 
   console.log("\nAction Summary:");
@@ -1079,11 +1153,12 @@ async function executeActionFlow(
   }
 
   console.log("\nCreating action...\n");
+  const argsForApi = sanitizeActionArgs(args);
   const actionResponse = await apiClient.createAction({
     integrationId: integration.id,
     action: actionType,
     address,
-    args,
+    args: argsForApi,
   });
 
   if (actionResponse.metadata) {
@@ -1113,7 +1188,7 @@ async function executePendingAction(
 ): Promise<void> {
   const actionDef = integration.actions.find((a) => a.id === pendingAction.type);
   const schema = actionDef?.schema;
-  const preFilledArgs = { ...pendingAction.args };
+  const preFilledArgs: ArgumentsDto = { ...pendingAction.args, network };
   const preFilledFields = Object.keys(preFilledArgs).filter(
     (k) => preFilledArgs[k] !== undefined && preFilledArgs[k] !== null,
   );
@@ -1155,11 +1230,12 @@ async function executePendingAction(
   }
 
   console.log("\nCreating action...\n");
+  const argsForApi = sanitizeActionArgs(args);
   const actionResponse = await apiClient.createAction({
     integrationId: integration.id,
     action: pendingAction.type,
     address,
-    args,
+    args: argsForApi,
   });
 
   if (actionResponse.metadata) {
