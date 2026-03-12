@@ -486,7 +486,11 @@ async function promptFromSchema(
   return result;
 }
 
-async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promise<string> {
+async function signTransaction(
+  tx: TransactionDto,
+  wallet: HDNodeWallet,
+  nonceOffset = 0,
+): Promise<{ signed: string; nonceAdjusted: boolean }> {
   if (!tx.signablePayload) throw new Error("Nothing to sign");
 
   if (tx.signingFormat === SigningFormat.EIP712_TYPED_DATA) {
@@ -494,7 +498,8 @@ async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promis
       typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
     const { domain, types, message } = typed;
     const { EIP712Domain: _, ...signingTypes } = types;
-    return wallet.signTypedData(domain, signingTypes, message);
+    const signed = await wallet.signTypedData(domain, signingTypes, message);
+    return { signed, nonceAdjusted: false };
   }
 
   if (
@@ -506,7 +511,19 @@ async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promis
 
   const txData =
     typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
-  return wallet.signTransaction(txData);
+
+  if (txData.nonce !== undefined && txData.nonce !== null) {
+    txData.nonce = Number(txData.nonce) + nonceOffset;
+    console.log(`  Using nonce: ${txData.nonce}`);
+  }
+
+  if (txData.gasLimit !== undefined && txData.gasLimit !== null) {
+    txData.gasLimit = Math.floor(Number(txData.gasLimit) * 1.3);
+    console.log(`  Gas limit: ${txData.gasLimit}`);
+  }
+
+  const signed = await wallet.signTransaction(txData);
+  return { signed, nonceAdjusted: true };
 }
 
 async function processTransactions(
@@ -515,6 +532,8 @@ async function processTransactions(
   apiClient: BorrowApiClient,
   actionId: string,
 ): Promise<void> {
+  let nonceOffset = 0;
+
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
 
@@ -541,7 +560,8 @@ async function processTransactions(
 
     try {
       console.log("Signing...");
-      const signature = await signTransaction(tx, wallet);
+      const { signed: signature, nonceAdjusted } = await signTransaction(tx, wallet, nonceOffset);
+      if (nonceAdjusted) nonceOffset++;
 
       console.log("Submitting...");
       const result = await apiClient.submitTransaction(tx.id, { signedPayload: signature });
