@@ -537,15 +537,25 @@ async function signTransaction(
     console.log(`  Gas limit: ${txData.gasLimit}`);
   }
 
-  if (provider && (!txData.maxFeePerGas || !txData.gasPrice)) {
-    const feeData = await provider.getFeeData();
-    if (feeData.maxFeePerGas) {
-      txData.maxFeePerGas = feeData.maxFeePerGas.toString();
-      txData.maxPriorityFeePerGas = (feeData.maxPriorityFeePerGas ?? 0n).toString();
-      console.log(`  Max fee: ${feeData.maxFeePerGas} | Priority: ${feeData.maxPriorityFeePerGas}`);
-    } else if (feeData.gasPrice) {
-      txData.gasPrice = feeData.gasPrice.toString();
-      console.log(`  Gas price: ${feeData.gasPrice}`);
+  if (provider) {
+    const hasLegacy = txData.gasPrice != null;
+    const has1559 = txData.maxFeePerGas != null || txData.maxPriorityFeePerGas != null;
+
+    if (!hasLegacy && !has1559) {
+      const feeData = await provider.getFeeData();
+      if (feeData.maxFeePerGas != null && feeData.maxPriorityFeePerGas != null) {
+        txData.maxFeePerGas = feeData.maxFeePerGas.toString();
+        txData.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas.toString();
+        console.log(`  Max fee: ${feeData.maxFeePerGas} | Priority: ${feeData.maxPriorityFeePerGas}`);
+      } else if (feeData.gasPrice != null) {
+        txData.gasPrice = feeData.gasPrice.toString();
+        console.log(`  Gas price: ${feeData.gasPrice}`);
+      }
+    } else if (has1559 && txData.maxPriorityFeePerGas == null) {
+      const feeData = await provider.getFeeData();
+      if (feeData.maxPriorityFeePerGas != null) {
+        txData.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas.toString();
+      }
     }
   }
 
