@@ -9,7 +9,7 @@
 import "cross-fetch/polyfill";
 import * as dotenv from "dotenv";
 import Enquirer from "enquirer";
-import { HDNodeWallet } from "ethers";
+import { HDNodeWallet, JsonRpcProvider } from "ethers";
 import { request } from "../utils/requests";
 
 dotenv.config();
@@ -17,6 +17,27 @@ dotenv.config();
 if (!process.env.MNEMONIC || !process.env.BORROW_API_KEY) {
   console.error("Error: MNEMONIC and BORROW_API_KEY environment variables are required");
   process.exit(1);
+}
+
+const DEFAULT_RPC_URLS: Record<string, string> = {
+  "1": "https://eth.llamarpc.com",
+  "42161": "https://arb1.arbitrum.io/rpc",
+  "10": "https://mainnet.optimism.io",
+  "8453": "https://mainnet.base.org",
+  "137": "https://polygon-rpc.com",
+  "43114": "https://api.avax.network/ext/bc/C/rpc",
+  "56": "https://bsc-dataseed.binance.org",
+  "100": "https://rpc.gnosischain.com",
+  "534352": "https://rpc.scroll.io",
+  "59144": "https://rpc.linea.build",
+};
+
+function getRpcUrl(chainId: string): string {
+  if (process.env.RPC_URL) return process.env.RPC_URL;
+  const url = DEFAULT_RPC_URLS[chainId];
+  if (!url)
+    throw new Error(`No RPC URL for chain ${chainId}. Set the RPC_URL environment variable.`);
+  return url;
 }
 
 // ===== Type Definitions =====
@@ -400,15 +421,8 @@ async function promptFromSchema(
     if (prop.description) message += ` - ${prop.description}`;
     if (!isRequired) message += " (optional)";
 
-    if (!isRequired && prop.default !== undefined) {
-      result[name] = prop.default;
-      continue;
-    }
-
     if (prop.enum || prop.options) {
-      const baseChoices = prop.options || (prop.enum as string[]);
-      const skipChoice = "<skip>";
-      const choices = isRequired ? baseChoices : [skipChoice, ...baseChoices];
+      const choices = prop.options || (prop.enum as string[]);
       const response: any = await Enquirer.prompt({
         type: "select",
         name: "value",
@@ -416,14 +430,13 @@ async function promptFromSchema(
         choices,
         initial: prop.default,
       } as any);
-      if (!isRequired && response.value === skipChoice) continue;
       result[name] = response.value;
     } else if (type === "boolean") {
       const response: any = await Enquirer.prompt({
         type: "confirm",
         name: "value",
         message,
-        initial: prop.default as boolean,
+        initial: prop.default || false,
       } as any);
       result[name] = response.value;
     } else if (type === "object" && prop.properties) {
@@ -433,8 +446,8 @@ async function promptFromSchema(
       const response: any = await Enquirer.prompt({
         type: "input",
         name: "value",
-        message: `${message} (comma-separated or JSON array)`,
-        initial: prop.default ? JSON.stringify(prop.default) : "",
+        message: `${message} (comma-separated)`,
+        initial: prop.default,
       } as any);
 
       if (response.value) {
@@ -451,7 +464,7 @@ async function promptFromSchema(
         type: "input",
         name: "value",
         message,
-        initial: (prop.placeholder || prop.default) as string,
+        initial: prop.default,
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
           if (isRequired && input === "") return `${prop.label || name} is required`;
@@ -474,19 +487,24 @@ async function promptFromSchema(
         },
       } as any);
 
-      if (response.value === "" && !isRequired) continue;
-
-      result[name] =
-        type === "number" || type === "integer"
-          ? Number.parseFloat(response.value)
-          : response.value;
+      if (response.value || isRequired) {
+        result[name] =
+          type === "number" || type === "integer"
+            ? Number.parseFloat(response.value)
+            : response.value;
+      }
     }
   }
 
   return result;
 }
 
-async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promise<string> {
+async function signTransaction(
+  tx: TransactionDto,
+  wallet: HDNodeWallet,
+  nonce?: number,
+  provider?: JsonRpcProvider,
+): Promise<{ signed: string; isEvmTx: boolean }> {
   if (!tx.signablePayload) throw new Error("Nothing to sign");
 
   if (tx.signingFormat === SigningFormat.EIP712_TYPED_DATA) {
@@ -494,19 +512,55 @@ async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promis
       typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
     const { domain, types, message } = typed;
     const { EIP712Domain: _, ...signingTypes } = types;
-    return wallet.signTypedData(domain, signingTypes, message);
+    const signed = await wallet.signTypedData(domain, signingTypes, message);
+    return { signed, isEvmTx: false };
   }
 
-  if (
-    tx.signingFormat !== SigningFormat.EVM_TRANSACTION &&
-    tx.signingFormat !== undefined
-  ) {
+  if (tx.signingFormat !== SigningFormat.EVM_TRANSACTION && tx.signingFormat !== undefined) {
     throw new Error(`Unsupported signing format: ${tx.signingFormat}`);
   }
 
   const txData =
     typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
-  return wallet.signTransaction(txData);
+
+  if (!txData.chainId && tx.chainId) {
+    txData.chainId = Number(tx.chainId);
+  }
+
+  if (nonce !== undefined) {
+    txData.nonce = nonce;
+    console.log(`  Using nonce: ${txData.nonce}`);
+  }
+
+  if (txData.gasLimit !== undefined && txData.gasLimit !== null) {
+    txData.gasLimit = Math.floor(Number(txData.gasLimit) * 1.3);
+    console.log(`  Gas limit: ${txData.gasLimit}`);
+  }
+
+  if (provider) {
+    const hasLegacy = txData.gasPrice != null;
+    const has1559 = txData.maxFeePerGas != null || txData.maxPriorityFeePerGas != null;
+
+    if (!hasLegacy && !has1559) {
+      const feeData = await provider.getFeeData();
+      if (feeData.maxFeePerGas != null && feeData.maxPriorityFeePerGas != null) {
+        txData.maxFeePerGas = feeData.maxFeePerGas.toString();
+        txData.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas.toString();
+        console.log(`  Max fee: ${feeData.maxFeePerGas} | Priority: ${feeData.maxPriorityFeePerGas}`);
+      } else if (feeData.gasPrice != null) {
+        txData.gasPrice = feeData.gasPrice.toString();
+        console.log(`  Gas price: ${feeData.gasPrice}`);
+      }
+    } else if (has1559 && txData.maxPriorityFeePerGas == null) {
+      const feeData = await provider.getFeeData();
+      if (feeData.maxPriorityFeePerGas != null) {
+        txData.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas.toString();
+      }
+    }
+  }
+
+  const signed = await wallet.signTransaction(txData);
+  return { signed, isEvmTx: true };
 }
 
 async function processTransactions(
@@ -515,6 +569,23 @@ async function processTransactions(
   apiClient: BorrowApiClient,
   actionId: string,
 ): Promise<void> {
+  let provider: JsonRpcProvider | undefined;
+  let baseNonce: number | undefined;
+  const firstEvmTx = transactions.find(
+    (tx) =>
+      tx.signablePayload &&
+      tx.status !== TransactionStatus.CONFIRMED &&
+      tx.status !== TransactionStatus.SKIPPED &&
+      (tx.signingFormat === SigningFormat.EVM_TRANSACTION || tx.signingFormat === undefined),
+  );
+  if (firstEvmTx) {
+    const rpcUrl = getRpcUrl(firstEvmTx.chainId);
+    provider = new JsonRpcProvider(rpcUrl);
+    baseNonce = await provider.getTransactionCount(wallet.address, "pending");
+    console.log(`  On-chain nonce: ${baseNonce} (chain ${firstEvmTx.chainId})`);
+  }
+  let nonceOffset = 0;
+
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
 
@@ -540,11 +611,25 @@ async function processTransactions(
     }
 
     try {
+      const nonce = baseNonce !== undefined ? baseNonce + nonceOffset : undefined;
       console.log("Signing...");
-      const signature = await signTransaction(tx, wallet);
+      const { signed, isEvmTx } = await signTransaction(tx, wallet, nonce, provider);
 
-      console.log("Submitting...");
-      const result = await apiClient.submitTransaction(tx.id, { signedPayload: signature });
+      let result: SubmitTransactionResponseDto;
+      if (isEvmTx && provider) {
+        console.log("Broadcasting...");
+        const broadcastResponse = await provider.broadcastTransaction(signed);
+        console.log(`  Hash: ${broadcastResponse.hash}`);
+        nonceOffset++;
+
+        console.log("Notifying API...");
+        result = await apiClient.submitTransaction(tx.id, {
+          transactionHash: broadcastResponse.hash,
+        });
+      } else {
+        console.log("Submitting...");
+        result = await apiClient.submitTransaction(tx.id, { signedPayload: signed });
+      }
 
       if (result.transactionHash) console.log(`  Hash: ${result.transactionHash}`);
       if (result.link) console.log(`  Explorer: ${result.link}`);
@@ -613,9 +698,7 @@ async function processMultiStepAction(
 
   let currentAction = action;
   while (currentAction.hasNextStep) {
-    console.log(
-      `\nStep ${currentAction.currentStep} of ${currentAction.totalSteps} completed.`,
-    );
+    console.log(`\nStep ${currentAction.currentStep} of ${currentAction.totalSteps} completed.`);
     console.log("Fetching next step...\n");
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -631,12 +714,8 @@ function displayActionMetadata(metadata: ActionMetadataDto): void {
   );
   console.log(`    LTV: ${formatRate(metadata.currentLtv)} → ${formatRate(metadata.predictedLtv)}`);
   console.log(`    Liquidation Threshold: ${formatRate(metadata.liquidationThreshold)}`);
-  console.log(
-    `    Total Supply: ${formatUsd(metadata.predictedTotalSupplyUsd)}`,
-  );
-  console.log(
-    `    Total Debt: ${formatUsd(metadata.predictedTotalDebtUsd)}`,
-  );
+  console.log(`    Total Supply: ${formatUsd(metadata.predictedTotalSupplyUsd)}`);
+  console.log(`    Total Debt: ${formatUsd(metadata.predictedTotalDebtUsd)}`);
 }
 
 // ===== Main Function =====
@@ -1092,9 +1171,7 @@ async function executeActionFlow(
   }
 
   if (actionResponse.totalSteps > 1) {
-    console.log(
-      `Multi-step action: ${actionResponse.totalSteps} steps total\n`,
-    );
+    console.log(`Multi-step action: ${actionResponse.totalSteps} steps total\n`);
   }
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
