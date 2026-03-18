@@ -26,6 +26,7 @@ enum PerpActionTypes {
   UPDATE_LEVERAGE = "updateLeverage",
   STOP_LOSS = "stopLoss",
   TAKE_PROFIT = "takeProfit",
+  SET_TP_AND_SL = "SET_TP_AND_SL",
   CANCEL_ORDER = "cancelOrder",
   FUND = "fund",
   WITHDRAW = "withdraw",
@@ -38,6 +39,7 @@ const ACTION_LABELS: Record<PerpActionTypes, string> = {
   [PerpActionTypes.UPDATE_LEVERAGE]: "Update Leverage",
   [PerpActionTypes.STOP_LOSS]: "Set Stop Loss",
   [PerpActionTypes.TAKE_PROFIT]: "Set Take Profit",
+  [PerpActionTypes.SET_TP_AND_SL]: "Set TP & SL",
   [PerpActionTypes.CANCEL_ORDER]: "Cancel Order",
   [PerpActionTypes.FUND]: "Deposit Funds",
   [PerpActionTypes.WITHDRAW]: "Withdraw Funds",
@@ -49,6 +51,7 @@ const POSITION_ONLY_ACTIONS = [
   PerpActionTypes.UPDATE_LEVERAGE,
   PerpActionTypes.STOP_LOSS,
   PerpActionTypes.TAKE_PROFIT,
+  PerpActionTypes.SET_TP_AND_SL,
 ];
 
 enum PerpTransactionStatus {
@@ -91,6 +94,8 @@ interface ActionArguments {
   limitPrice?: number;
   stopLossPrice?: number;
   takeProfitPrice?: number;
+  stopLossOrderId?: string;
+  takeProfitOrderId?: string;
   orderId?: string;
   assetIndex?: number;
   fromToken?: TokenIdentifierDto;
