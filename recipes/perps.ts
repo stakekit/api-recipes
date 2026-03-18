@@ -92,6 +92,7 @@ interface ActionArguments {
   stopLossPrice?: number;
   takeProfitPrice?: number;
   orderId?: string;
+  orderIds?: string[];
   assetIndex?: number;
   fromToken?: TokenIdentifierDto;
   [key: string]: any;
@@ -227,31 +228,34 @@ function verifySignedMetadata(hex: string, summary?: Record<string, any>): boole
     // Sequential TLV parse — treat tag 0x15 as the signature envelope
     let i = 0;
     while (i < buf.length) {
-      if (i + 1 >= buf.length) return false;                 // need at least tag + len
+      if (i + 1 >= buf.length) return false; // need at least tag + len
       const tag = buf[i];
       const len = buf[i + 1];
-      if (i + 2 + len > buf.length) return false;            // value would exceed buffer
+      if (i + 2 + len > buf.length) return false; // value would exceed buffer
       const val = buf.subarray(i + 2, i + 2 + len);
 
       if (tag === 0x15) {
-        metadata = buf.subarray(0, i);                        // everything before this TLV
+        metadata = buf.subarray(0, i); // everything before this TLV
         signature = val;
         break;
       }
 
       // Per-tag field validations
-      if (tag === 0x01 && val[0] !== 0x2b) return false;                                     // structure_type
-      if (tag === 0x02 && val[0] !== 0x01) return false;                                     // version
-      if (tag === 0xd0 && val[0] > 0x03) return false;                                      // action_type (0-3)
-      if (summary && tag === 0xd1 && val.readUInt32BE(0) !== summary.assetId) return false;  // asset_id
-      if (summary && tag === 0x24 && val.toString("utf8") !== summary.asset) return false;   // asset_ticker
+      if (tag === 0x01 && val[0] !== 0x2b) return false; // structure_type
+      if (tag === 0x02 && val[0] !== 0x01) return false; // version
+      if (tag === 0xd0 && val[0] > 0x03) return false; // action_type (0-3)
+      if (summary && tag === 0xd1 && val.readUInt32BE(0) !== summary.assetId) return false; // asset_id
+      if (summary && tag === 0x24 && val.toString("utf8") !== summary.asset) return false; // asset_ticker
 
       i += 2 + len;
     }
 
     if (!metadata || !signature) return false;
 
-    return crypto.createVerify("SHA256").update(metadata).verify(SIGNED_METADATA_PUBLIC_KEY, signature);
+    return crypto
+      .createVerify("SHA256")
+      .update(metadata)
+      .verify(SIGNED_METADATA_PUBLIC_KEY, signature);
   } catch {
     return false;
   }
@@ -360,7 +364,7 @@ class PerpsApiClient {
 async function promptFromSchema(
   schema: ArgumentSchema,
   skipFields: string[] = [],
-  context?: { market?: PerpMarket },
+  context?: { market?: PerpMarket; actionType?: PerpActionTypes },
 ): Promise<Record<string, any>> {
   const result: Record<string, any> = {};
   const properties = schema.properties || {};
@@ -382,7 +386,10 @@ async function promptFromSchema(
     }
 
     if (prop.enum || prop.options) {
-      const choices = prop.options || (prop.enum as string[]);
+      const choices = sanitizeStringChoices(prop.options || (prop.enum as string[]));
+      if (choices.length === 0) {
+        throw new Error(`No valid options available for ${name}`);
+      }
       const response: any = await Enquirer.prompt({
         type: "select",
         name: "value",
@@ -420,10 +427,14 @@ async function promptFromSchema(
         }
       }
     } else {
+      const isCancelOrderIdInput =
+        context?.actionType === PerpActionTypes.CANCEL_ORDER && name === "orderId";
       const response: any = await Enquirer.prompt({
         type: "input",
         name: "value",
-        message,
+        message: isCancelOrderIdInput
+          ? `${message} (single ID, comma-separated, or JSON array)`
+          : message,
         initial: prop.default as string,
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
@@ -449,6 +460,18 @@ async function promptFromSchema(
 
       if (response.value === "" && !isRequired) continue;
 
+      if (isCancelOrderIdInput) {
+        const parsedOrderIds = parseOrderIdsInput(response.value);
+        if (parsedOrderIds.length > 1) {
+          result.orderIds = parsedOrderIds;
+          continue;
+        }
+        if (parsedOrderIds.length === 1) {
+          result[name] = parsedOrderIds[0];
+          continue;
+        }
+      }
+
       result[name] =
         type === "number" || type === "integer"
           ? Number.parseFloat(response.value)
@@ -457,6 +480,73 @@ async function promptFromSchema(
   }
 
   return result;
+}
+
+function parseOrderIdsInput(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  try {
+    if (trimmed.startsWith("[")) {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => String(v).trim()).filter(Boolean);
+      }
+    }
+  } catch {
+    // Fall back to comma-separated parsing below
+  }
+
+  return trimmed
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function normalizeCancelOrderArgs(args: ActionArguments): ActionArguments {
+  const normalized: ActionArguments = { ...args };
+  const hasOrderIdsKey = Object.prototype.hasOwnProperty.call(normalized, "orderIds");
+
+  const explicitOrderIds = Array.isArray(normalized.orderIds)
+    ? normalized.orderIds.map((v) => String(v).trim()).filter(Boolean)
+    : typeof normalized.orderIds === "string"
+      ? parseOrderIdsInput(normalized.orderIds)
+      : [];
+
+  if (hasOrderIdsKey && explicitOrderIds.length > 0) {
+    return {
+      ...normalized,
+      orderIds: explicitOrderIds,
+      orderId: undefined,
+    };
+  }
+
+  const parsedFromOrderId =
+    typeof normalized.orderId === "string" ? parseOrderIdsInput(normalized.orderId) : [];
+
+  if (parsedFromOrderId.length > 1) {
+    return {
+      ...normalized,
+      orderIds: parsedFromOrderId,
+      orderId: undefined,
+    };
+  }
+
+  if (parsedFromOrderId.length === 1) {
+    return {
+      ...normalized,
+      orderId: parsedFromOrderId[0],
+      orderIds: undefined,
+    };
+  }
+
+  return normalized;
+}
+
+function sanitizeStringChoices(choices: Array<string | null | undefined>): string[] {
+  return choices.filter(
+    (choice): choice is string => typeof choice === "string" && choice.length > 0,
+  );
 }
 
 /**
@@ -536,7 +626,6 @@ async function processTransactions(
           console.log(`   Link: ${result.link}`);
         }
       }
-
     } catch (error: any) {
       console.error(`Failed to submit transaction ${tx.id}: ${error.message}`);
       throw error;
@@ -871,8 +960,8 @@ async function managePositionOrOrder(
 ): Promise<void> {
   const items: Array<{
     display: string;
-    type: "position" | "order";
-    data: PerpPosition | PerpOrder;
+    type: "position" | "order" | "bulkCancelOrders";
+    data: PerpPosition | PerpOrder | null;
   }> = [];
 
   for (const pos of positions) {
@@ -891,6 +980,14 @@ async function managePositionOrOrder(
     });
   }
 
+  if (orders.length > 1) {
+    items.push({
+      display: "[Bulk] Cancel Multiple Orders",
+      type: "bulkCancelOrders",
+      data: null,
+    });
+  }
+
   const { selected }: any = await Enquirer.prompt({
     type: "select",
     name: "selected",
@@ -905,9 +1002,114 @@ async function managePositionOrOrder(
 
   if (selectedItem.type === "position") {
     await managePosition(apiClient, providerId, address, wallet, selectedItem.data as PerpPosition);
+  } else if (selectedItem.type === "bulkCancelOrders") {
+    await manageMultipleOrders(apiClient, providerId, address, wallet, orders);
   } else {
     await manageOrder(apiClient, providerId, address, wallet, selectedItem.data as PerpOrder);
   }
+}
+
+function extractOrderId(order: PerpOrder): string | undefined {
+  const rawOrder = order as any;
+  if (typeof rawOrder.id === "string" && rawOrder.id.trim().length > 0) {
+    return rawOrder.id.trim();
+  }
+
+  if (typeof rawOrder.orderId === "string" && rawOrder.orderId.trim().length > 0) {
+    return rawOrder.orderId.trim();
+  }
+
+  const cancelAction = rawOrder.pendingActions?.find(
+    (action: any) => action?.type === PerpActionTypes.CANCEL_ORDER,
+  );
+  const actionOrderId = cancelAction?.args?.orderId;
+  if (typeof actionOrderId === "string" && actionOrderId.trim().length > 0) {
+    return actionOrderId.trim();
+  }
+
+  if (Array.isArray(cancelAction?.args?.orderIds) && cancelAction.args.orderIds.length === 1) {
+    const firstOrderId = String(cancelAction.args.orderIds[0]).trim();
+    if (firstOrderId.length > 0) return firstOrderId;
+  }
+
+  return undefined;
+}
+
+async function manageMultipleOrders(
+  apiClient: PerpsApiClient,
+  providerId: string,
+  address: string,
+  wallet: HDNodeWallet,
+  orders: PerpOrder[],
+): Promise<void> {
+  const selectableOrders = orders
+    .map((order, i) => {
+      const orderId = extractOrderId(order);
+      if (!orderId) return null;
+      return {
+        orderId,
+        order,
+        display: `${i + 1}. ${order.marketId} - ${order.type.toUpperCase()} ${order.side.toUpperCase()} ${order.size} [${orderId}]`,
+      };
+    })
+    .filter((entry): entry is { orderId: string; order: PerpOrder; display: string } => !!entry);
+
+  if (selectableOrders.length === 0) {
+    console.log("\nNo cancellable orders found with identifiable order IDs\n");
+    return;
+  }
+
+  const choices = sanitizeStringChoices(selectableOrders.map((entry) => entry.display));
+  const { selectedOrders }: any = await Enquirer.prompt({
+    type: "multiselect",
+    name: "selectedOrders",
+    message: "Select orders to cancel:",
+    choices,
+  });
+
+  if (!Array.isArray(selectedOrders) || selectedOrders.length === 0) {
+    console.log("No orders selected\n");
+    return;
+  }
+  console.log("selectedOrders", selectedOrders);
+
+  const selectedEntries = selectableOrders.filter((entry) =>
+    selectedOrders.includes(entry.display),
+  );
+  console.log("selectedEntries", selectedEntries);
+  const selectedOrderIds = selectedEntries.map((entry) => entry.orderId);
+
+  const schemas = await apiClient.getArguments(providerId);
+  console.log(schemas);
+  const cancelSchema = schemas[PerpActionTypes.CANCEL_ORDER];
+  console.log(cancelSchema);
+  if (!cancelSchema) {
+    console.log("Schema not found for cancel order");
+    return;
+  }
+
+  const args: ActionArguments = { orderIds: selectedOrderIds };
+  const requiredFields = cancelSchema.required || [];
+
+  if (requiredFields.includes("marketId")) {
+    const uniqueMarkets = [...new Set(selectedEntries.map((entry) => entry.order.marketId))];
+    if (uniqueMarkets.length !== 1) {
+      console.log(
+        "\nCancel Order currently requires marketId. Please select orders from a single market.\n",
+      );
+      return;
+    }
+    args.marketId = uniqueMarkets[0];
+  }
+
+  await executeAction(apiClient, providerId, address, wallet, {
+    action: {
+      type: PerpActionTypes.CANCEL_ORDER,
+      label: "Cancel Multiple Orders",
+      args,
+    },
+    summaryLabel: `${selectedOrderIds.length} selected order(s)`,
+  });
 }
 
 async function managePosition(
@@ -933,7 +1135,11 @@ async function managePosition(
     return;
   }
 
-  const actionChoices = positionActions.map((action: any) => action.label);
+  const actionChoices = sanitizeStringChoices(positionActions.map((action: any) => action.label));
+  if (actionChoices.length === 0) {
+    console.log("\nNo valid action labels available for this position\n");
+    return;
+  }
 
   const { selectedActionLabel }: any = await Enquirer.prompt({
     type: "select",
@@ -966,7 +1172,13 @@ async function manageOrder(
     return;
   }
 
-  const actionChoices = order.pendingActions.map((action: any) => action.label);
+  const actionChoices = sanitizeStringChoices(
+    order.pendingActions.map((action: any) => action.label),
+  );
+  if (actionChoices.length === 0) {
+    console.log("\nNo valid action labels available for this order\n");
+    return;
+  }
 
   const { selectedAction }: any = await Enquirer.prompt({
     type: "select",
@@ -1107,7 +1319,11 @@ async function executeTrade(
     return !POSITION_ONLY_ACTIONS.includes(actionType) || !!existingPosition;
   }) as PerpActionTypes[];
 
-  const actionChoices = availableActions.map((type) => ACTION_LABELS[type]);
+  const actionChoices = sanitizeStringChoices(availableActions.map((type) => ACTION_LABELS[type]));
+  if (actionChoices.length === 0) {
+    console.log("No valid market actions available\n");
+    return;
+  }
 
   const { action }: any = await Enquirer.prompt({
     type: "select",
@@ -1127,8 +1343,10 @@ async function executeTrade(
   }
 
   const args = { marketId: market.id };
-  const collected = await promptFromSchema(schema, ["marketId"], { market });
+  const collected = await promptFromSchema(schema, ["marketId"], { market, actionType });
   Object.assign(args, collected);
+  const preparedArgs =
+    actionType === PerpActionTypes.CANCEL_ORDER ? normalizeCancelOrderArgs(args) : args;
 
   const { confirm }: any = await Enquirer.prompt({
     type: "confirm",
@@ -1142,7 +1360,12 @@ async function executeTrade(
   }
 
   console.log("\nCreating action via API...\n");
-  const actionResponse = await apiClient.createAction(providerId, actionType, address, args);
+  const actionResponse = await apiClient.createAction(
+    providerId,
+    actionType,
+    address,
+    preparedArgs,
+  );
 
   // Verify signed metadata if present on the action response
   if (actionResponse.signedMetadata) {
@@ -1195,16 +1418,30 @@ async function executeAction(
 ): Promise<void> {
   const { action, context = {}, summaryLabel } = options;
   const actionArgs: any = { ...action.args };
+  const actionType = action.type as PerpActionTypes;
   const preFilledFields = Object.keys(actionArgs);
+  if (
+    actionType === PerpActionTypes.CANCEL_ORDER &&
+    Array.isArray(actionArgs.orderIds) &&
+    actionArgs.orderIds.length > 0 &&
+    !preFilledFields.includes("orderId")
+  ) {
+    // orderIds already selected in bulk flow; skip redundant orderId prompt.
+    preFilledFields.push("orderId");
+  }
 
   const schemas = await apiClient.getArguments(providerId);
-  const actionType = action.type as PerpActionTypes;
   const schema = schemas[actionType];
 
   if (schema) {
-    const collected = await promptFromSchema(schema, preFilledFields, context);
+    const collected = await promptFromSchema(schema, preFilledFields, {
+      ...context,
+      actionType,
+    });
     Object.assign(actionArgs, collected);
   }
+  const preparedActionArgs =
+    actionType === PerpActionTypes.CANCEL_ORDER ? normalizeCancelOrderArgs(actionArgs) : actionArgs;
 
   console.log("\nAction Summary:");
   if (summaryLabel) {
@@ -1212,7 +1449,7 @@ async function executeAction(
   }
   console.log(`  Action: ${action.label}`);
 
-  for (const [key, value] of Object.entries(actionArgs)) {
+  for (const [key, value] of Object.entries(preparedActionArgs)) {
     if (value !== undefined && key !== "marketId") {
       const formattedKey = key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase());
       const displayValue = typeof value === "object" ? JSON.stringify(value) : value;
@@ -1233,7 +1470,12 @@ async function executeAction(
   }
 
   console.log("\nCreating action via API...\n");
-  const actionResponse = await apiClient.createAction(providerId, actionType, address, actionArgs);
+  const actionResponse = await apiClient.createAction(
+    providerId,
+    actionType,
+    address,
+    preparedActionArgs,
+  );
 
   // Verify signed metadata if present on the action response
   if (actionResponse.signedMetadata) {
