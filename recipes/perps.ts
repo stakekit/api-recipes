@@ -1321,6 +1321,10 @@ async function executeTrade(
       return false;
     }
 
+    if (!ACTION_LABELS[actionType]) {
+      return false;
+    }
+
     return !POSITION_ONLY_ACTIONS.includes(actionType) || !!existingPosition;
   }) as PerpActionTypes[];
 
