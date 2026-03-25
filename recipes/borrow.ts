@@ -451,7 +451,9 @@ async function promptFromSchema(
         type: "input",
         name: "value",
         message,
-        initial: (prop.placeholder || prop.default) as string,
+        ...(isRequired && (prop.placeholder || prop.default)
+          ? { initial: (prop.placeholder || prop.default) as string }
+          : {}),
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
           if (isRequired && input === "") return `${prop.label || name} is required`;
