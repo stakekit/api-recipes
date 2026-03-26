@@ -814,6 +814,16 @@ async function executeAction(
     args.amount = amount;
   }
 
+  if (type === "enter") {
+    const { maxApproval }: any = await Enquirer.prompt({
+      type: "confirm",
+      name: "maxApproval",
+      message: "Use max (unlimited) token approval?",
+      initial: false,
+    });
+    args.maxApproval = maxApproval;
+  }
+
   console.log("\nAction Summary:");
   console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
   if (manageActionArguments?.balance) {
