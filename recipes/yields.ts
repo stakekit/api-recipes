@@ -219,6 +219,10 @@ class YieldsApiClient {
     );
   }
 
+  async getYield(yieldId: string): Promise<YieldOpportunity> {
+    return this.makeRequest<YieldOpportunity>("GET", `/v1/yields/${yieldId}`);
+  }
+
   async getBalances(yieldId: string, address: string): Promise<YieldBalancesDto> {
     return this.makeRequest<YieldBalancesDto>("POST", `/v1/yields/${yieldId}/balances`, {
       address,
@@ -539,6 +543,14 @@ async function main() {
     const wallet = HDNodeWallet.fromPhrase(mnemonic, undefined, derivationPath);
     const address = wallet.address;
     console.log(`Address: ${address}\n`);
+
+    const quickYieldId = process.env.YIELD_ID;
+    if (quickYieldId) {
+      console.log(`Quick-test mode: fetching yield ${quickYieldId}...\n`);
+      const yieldInfo = await apiClient.getYield(quickYieldId);
+      await executeAction(apiClient, yieldInfo, address, wallet, "enter");
+      return;
+    }
 
     await selectYieldFlow(apiClient, address, wallet);
   } catch (e: any) {
