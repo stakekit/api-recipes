@@ -9,7 +9,7 @@
 import "cross-fetch/polyfill";
 import * as dotenv from "dotenv";
 import Enquirer from "enquirer";
-import { HDNodeWallet } from "ethers";
+import { HDNodeWallet, JsonRpcProvider } from "ethers";
 import { request } from "../utils/requests";
 
 dotenv.config();
@@ -38,6 +38,15 @@ const ACTION_LABELS: Record<BorrowActionType, string> = {
   [BorrowActionType.ENABLE_COLLATERAL]: "Enable Collateral",
   [BorrowActionType.DISABLE_COLLATERAL]: "Disable Collateral",
 };
+
+// Token-scoped actions: their schema takes only tokenAddress (no marketId), so they
+// can't be driven from the market picker. The API surfaces them as pending actions on
+// the relevant supply balance (with tokenAddress pre-filled), so they are executed via
+// View Position, not from the standalone market-action menu.
+const POSITION_DRIVEN_ACTIONS = new Set<BorrowActionType>([
+  BorrowActionType.ENABLE_COLLATERAL,
+  BorrowActionType.DISABLE_COLLATERAL,
+]);
 
 enum TransactionStatus {
   NOT_FOUND = "NOT_FOUND",
@@ -70,7 +79,7 @@ interface TokenDto {
 interface CollateralTokenDto {
   token: TokenDto;
   priceUsd: string;
-  ltv: string;
+  maxLtv: string;
   liquidationThreshold: string;
   liquidationPenalty: string;
   supplyRate: string;
@@ -179,6 +188,7 @@ interface PositionDto {
   integrationId: string;
   network: string;
   totalSuppliedUsd: string;
+  totalCollateralUsd: string;
   totalBorrowedUsd: string;
   netWorthUsd: string;
   healthFactor: string | null;
@@ -192,6 +202,7 @@ interface PositionDto {
 interface ArgumentsDto {
   amount?: string;
   amountRaw?: string;
+  repayAll?: boolean;
   tokenAddress?: string;
   collateralTokenAddress?: string;
   collateralAmount?: string;
@@ -219,6 +230,13 @@ interface ActionMetadataDto {
   liquidationThreshold: string;
   predictedTotalSupplyUsd: string;
   predictedTotalDebtUsd: string;
+  // Present only when a borrow wrapper applies an origination fee
+  originationFeeBps?: number;
+  originationFeeAmount?: string;
+  effectivePrincipalAmount?: string;
+  // Present only on supply actions when a supply fee wrapper is configured
+  feeAmount?: string;
+  feeBps?: number;
 }
 
 interface ActionDto {
@@ -279,12 +297,16 @@ class BorrowApiClient {
     network?: string;
     limit?: number;
     offset?: number;
+    scope?: "enabled" | "all";
   }): Promise<PaginatedResponse<MarketDto>> {
     const query = new URLSearchParams();
     if (params?.integrationId) query.append("integrationId", params.integrationId);
     if (params?.network) query.append("network", params.network);
     if (params?.limit !== undefined) query.append("limit", params.limit.toString());
     if (params?.offset !== undefined) query.append("offset", params.offset.toString());
+    // The API defaults to scope=enabled (only markets the project has enabled). Recipes
+    // pass scope=all so every market the protocol exposes is browsable out of the box.
+    if (params?.scope) query.append("scope", params.scope);
 
     const queryString = query.toString();
     return this.makeRequest<PaginatedResponse<MarketDto>>(
@@ -382,9 +404,47 @@ function formatHealthFactor(value: string | null): string {
   return `${num.toFixed(2)}${indicator}`;
 }
 
+// Pairs of fields the borrow API treats as mutually exclusive — you must send one or
+// the other, never both. The schema expresses this only in prose (`notes`), so the
+// generic prompter has to know the pairs. Whichever member is collected first wins; the
+// partner is then skipped. Schema order lists the human-readable form before the raw
+// form, so the human-readable one is offered first and the raw is the fallback.
+const EXCLUSIVE_FIELD_PAIRS: Record<string, string> = {
+  amount: "amountRaw",
+  amountRaw: "amount",
+  collateralAmount: "collateralAmountRaw",
+  collateralAmountRaw: "collateralAmount",
+};
+
+// Fields that take a token contract address. For these we offer a picker built from the
+// selected market's real tokens (symbol-labeled) instead of free-text, so the user can't
+// submit an address that isn't part of the market.
+const TOKEN_ADDRESS_FIELDS = new Set(["tokenAddress", "collateralTokenAddress"]);
+
+// Build symbol-labeled choices from a market's loan + collateral tokens.
+function buildMarketTokenChoices(
+  market: MarketDto,
+): Array<{ display: string; address: string }> {
+  const choices: Array<{ display: string; address: string }> = [];
+  const seen = new Set<string>();
+
+  const add = (token: TokenDto | undefined, role: string) => {
+    const address = token?.address;
+    if (!address || seen.has(address.toLowerCase())) return;
+    seen.add(address.toLowerCase());
+    choices.push({ display: `${token.symbol} (${role}) - ${address}`, address });
+  };
+
+  add(market.loanToken, "loan");
+  for (const ct of market.collateralTokens) add(ct.token, "collateral");
+
+  return choices;
+}
+
 async function promptFromSchema(
   schema: ArgumentSchemaDto,
   skipFields: string[] = [],
+  context?: { market?: MarketDto },
 ): Promise<Record<string, any>> {
   const result: Record<string, any> = {};
   const properties = schema.properties || {};
@@ -392,6 +452,13 @@ async function promptFromSchema(
 
   for (const [name, prop] of Object.entries(properties)) {
     if (skipFields.includes(name)) continue;
+
+    // Skip a field whose mutually-exclusive partner was already provided — either
+    // collected in this loop or pre-filled by the caller (pendingActions) and passed in
+    // skipFields — so we never send both (e.g. amount + amountRaw), which the API rejects.
+    const partner = EXCLUSIVE_FIELD_PAIRS[name];
+    if (partner !== undefined && (result[partner] !== undefined || skipFields.includes(partner)))
+      continue;
 
     const isRequired = required.includes(name);
     const type = Array.isArray(prop.type) ? prop.type[0] : prop.type || "string";
@@ -403,6 +470,30 @@ async function promptFromSchema(
     if (!isRequired && prop.default !== undefined) {
       result[name] = prop.default;
       continue;
+    }
+
+    // Token-address fields: pick from the selected market's actual tokens.
+    if (TOKEN_ADDRESS_FIELDS.has(name) && context?.market) {
+      const tokenChoices = buildMarketTokenChoices(context.market);
+      if (tokenChoices.length > 0) {
+        const skipChoice = "<skip>";
+        const choices = isRequired
+          ? tokenChoices.map((c) => c.display)
+          : [skipChoice, ...tokenChoices.map((c) => c.display)];
+        const response: any = await Enquirer.prompt({
+          type: "select",
+          name: "value",
+          message,
+          choices,
+        } as any);
+        if (!isRequired && response.value === skipChoice) continue;
+        const picked = tokenChoices.find((c) => c.display === response.value);
+        if (picked) {
+          result[name] = picked.address;
+          continue;
+        }
+      }
+      // No usable token list — fall through to the generic text input below.
     }
 
     if (prop.enum || prop.options) {
@@ -447,11 +538,15 @@ async function promptFromSchema(
         }
       }
     } else {
+      // Placeholders are hints (e.g. "0xA0b8…"), NOT defaults — surface them in the
+      // message but never pre-fill them as the submitted value (Enquirer returns `initial`
+      // verbatim on Enter, which previously sent the placeholder address as a real value).
+      const inputMessage = prop.placeholder ? `${message} (e.g. ${prop.placeholder})` : message;
       const response: any = await Enquirer.prompt({
         type: "input",
         name: "value",
-        message,
-        initial: (prop.placeholder || prop.default) as string,
+        message: inputMessage,
+        initial: prop.default as string,
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
           if (isRequired && input === "") return `${prop.label || name} is required`;
@@ -506,6 +601,28 @@ async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promis
 
   const txData =
     typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
+
+  // STOPGAP: the borrow API returns EVM payloads with to/data/gasLimit/chainId but WITHOUT
+  // nonce or gas-fee fields, unlike the yields API which returns a fully-broadcastable tx.
+  // Until the borrow API populates these server-side, we fill them client-side from an RPC
+  // provider, otherwise the node rejects the broadcast with an empty 503. See README/.env.
+  if (txData.nonce === undefined || txData.nonce === null) {
+    if (!wallet.provider) {
+      throw new Error(
+        "RPC_URL is required to sign borrow transactions (the API does not yet return nonce/gas fees). " +
+          "Set RPC_URL in your .env to an endpoint for the transaction's network.",
+      );
+    }
+
+    // populateTransaction fills nonce + maxFeePerGas/maxPriorityFeePerGas (and any other
+    // missing fields) while leaving the API-provided to/data/gasLimit/chainId intact.
+    const populated = await wallet.populateTransaction(txData);
+    // ethers v6 signTransaction rejects a tx that still carries `from`; strip it (it equals
+    // the signer address anyway).
+    populated.from = undefined;
+    return wallet.signTransaction(populated);
+  }
+
   return wallet.signTransaction(txData);
 }
 
@@ -558,22 +675,33 @@ async function processTransactions(
         console.log("  Waiting for confirmation...");
         let confirmed = false;
         let attempts = 0;
-        const maxAttempts = 60;
+        // Mainnet block time + the indexer's status-check cycle (fast cycle sleeps ~5s and
+        // only then reads on-chain status) can take a few minutes, so allow up to ~5 min.
+        const pollIntervalMs = 3000;
+        const maxAttempts = 100;
 
         while (!confirmed && attempts < maxAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
 
           try {
             const updatedAction = await apiClient.getAction(actionId);
             const updatedTx = updatedAction.transactions.find((t) => t.id === tx.id);
+            const polledStatus = updatedTx?.status ?? "unknown";
 
-            if (updatedTx?.status === TransactionStatus.CONFIRMED) {
+            if (polledStatus === TransactionStatus.CONFIRMED) {
               console.log("\n  Confirmed!");
               confirmed = true;
-            } else if (updatedTx?.status === TransactionStatus.FAILED) {
+            } else if (polledStatus === TransactionStatus.FAILED) {
               throw new Error("Transaction failed on-chain");
             } else {
-              process.stdout.write(".");
+              // Surface the current status every ~15s so it's clear we're waiting on the
+              // chain/indexer, not frozen.
+              if (attempts % 5 === 0) {
+                const elapsed = Math.round((attempts * pollIntervalMs) / 1000);
+                process.stdout.write(`\n  Waiting (status: ${polledStatus}, ${elapsed}s)`);
+              } else {
+                process.stdout.write(".");
+              }
             }
           } catch (error: any) {
             if (error.message === "Transaction failed on-chain") throw error;
@@ -584,7 +712,15 @@ async function processTransactions(
         }
 
         if (!confirmed) {
-          throw new Error(`Transaction ${tx.id} confirmation timeout after ${maxAttempts * 2}s`);
+          // The tx is already broadcast (hash printed above) — don't fail hard. Stop the
+          // flow here: any later transactions in this action (e.g. SUPPLY after APPROVAL)
+          // depend on this one being confirmed, so we must not broadcast them yet. The tx
+          // will confirm on its own; re-running reflects the final state.
+          const waited = Math.round((maxAttempts * pollIntervalMs) / 1000);
+          console.log(
+            `\n  Still pending after ${waited}s. Broadcast succeeded (hash above); it will confirm on its own. Stopping here so dependent steps aren't sent prematurely — re-run once it confirms to continue.`,
+          );
+          return;
         }
       } else {
         console.log(`  Status: ${result.status}`);
@@ -637,6 +773,22 @@ function displayActionMetadata(metadata: ActionMetadataDto): void {
   console.log(
     `    Total Debt: ${formatUsd(metadata.predictedTotalDebtUsd)}`,
   );
+
+  if (metadata.originationFeeBps !== undefined || metadata.originationFeeAmount !== undefined) {
+    const parts: string[] = [];
+    if (metadata.originationFeeBps !== undefined) parts.push(`${metadata.originationFeeBps} bps`);
+    if (metadata.originationFeeAmount !== undefined) parts.push(metadata.originationFeeAmount);
+    console.log(`    Origination Fee: ${parts.join(" / ")}`);
+  }
+  if (metadata.effectivePrincipalAmount !== undefined) {
+    console.log(`    Effective Principal: ${metadata.effectivePrincipalAmount}`);
+  }
+  if (metadata.feeBps !== undefined || metadata.feeAmount !== undefined) {
+    const parts: string[] = [];
+    if (metadata.feeBps !== undefined) parts.push(`${metadata.feeBps} bps`);
+    if (metadata.feeAmount !== undefined) parts.push(`${metadata.feeAmount} raw`);
+    console.log(`    Supply Fee: ${parts.join(" / ")}`);
+  }
 }
 
 // ===== Main Function =====
@@ -658,7 +810,29 @@ async function main() {
       throw new Error("WALLET_INDEX must be a non-negative integer");
     }
     const derivationPath = `m/44'/60'/0'/0/${walletIndex}`;
-    const wallet = HDNodeWallet.fromPhrase(mnemonic, undefined, derivationPath);
+    let wallet = HDNodeWallet.fromPhrase(mnemonic, undefined, derivationPath);
+
+    // STOPGAP: the borrow API returns EVM payloads without nonce/gas fees, so the recipe
+    // must populate them before signing (see signTransaction). Connect the wallet to an RPC
+    // provider when RPC_URL is set so populateTransaction can fetch nonce + fee data.
+    const rpcUrl = process.env.RPC_URL;
+    if (rpcUrl) {
+      wallet = wallet.connect(new JsonRpcProvider(rpcUrl));
+      // Log only the host so an API key embedded in the path/query isn't printed.
+      let rpcHost = rpcUrl;
+      try {
+        rpcHost = new URL(rpcUrl).host;
+      } catch {
+        rpcHost = "(set)";
+      }
+      console.log(`RPC: ${rpcHost}\n`);
+    } else {
+      console.log(
+        "Warning: RPC_URL not set. Borrow transactions need nonce/gas fees populated " +
+          "client-side and will fail to sign without it.\n",
+      );
+    }
+
     const address = wallet.address;
     console.log(`Address: ${address}\n`);
 
@@ -744,9 +918,16 @@ async function integrationMenu(
     const choices: string[] = ["View Position", "Browse Markets"];
 
     for (const actionType of Object.values(BorrowActionType)) {
+      // Token-scoped collateral toggles are driven from View Position (pending actions),
+      // not the market picker — skip them here.
+      if (POSITION_DRIVEN_ACTIONS.has(actionType)) continue;
       if (availableActions.includes(actionType)) {
         choices.push(ACTION_LABELS[actionType]);
       }
+    }
+
+    if (availableActions.some((a) => POSITION_DRIVEN_ACTIONS.has(a))) {
+      console.log("Tip: enable/disable collateral from 'View Position' (per supplied token).\n");
     }
 
     choices.push("Back");
@@ -805,6 +986,7 @@ async function viewPosition(
   console.log("Summary");
   console.log(`${"─".repeat(70)}`);
   console.log(`  Total Supplied:      ${formatUsd(position.totalSuppliedUsd)}`);
+  console.log(`  Total Collateral:    ${formatUsd(position.totalCollateralUsd)}`);
   console.log(`  Total Borrowed:      ${formatUsd(position.totalBorrowedUsd)}`);
   console.log(`  Net Worth:           ${formatUsd(position.netWorthUsd)}`);
   console.log(`  Health Factor:       ${formatHealthFactor(position.healthFactor)}`);
@@ -911,13 +1093,19 @@ async function fetchAllMarkets(
   network: string,
 ): Promise<MarketDto[]> {
   const limit = 100;
-  const firstPage = await apiClient.getMarkets({ integrationId, network, limit, offset: 0 });
+  const firstPage = await apiClient.getMarkets({
+    integrationId,
+    network,
+    limit,
+    offset: 0,
+    scope: "all",
+  });
   const totalPages = Math.ceil(firstPage.total / limit);
 
   if (totalPages <= 1) return firstPage.items;
 
   const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) =>
-    apiClient.getMarkets({ integrationId, network, limit, offset: (i + 1) * limit }),
+    apiClient.getMarkets({ integrationId, network, limit, offset: (i + 1) * limit, scope: "all" }),
   );
 
   const results = await Promise.all(remainingPages);
@@ -934,7 +1122,7 @@ async function browseMarkets(
 
   while (true) {
     console.log("\nFetching markets...\n");
-    const response = await apiClient.getMarkets({ integrationId, network, limit, offset });
+    const response = await apiClient.getMarkets({ integrationId, network, limit, offset, scope: "all" });
 
     if (response.items.length === 0 && offset === 0) {
       console.log("No markets found\n");
@@ -971,7 +1159,7 @@ async function browseMarkets(
         console.log("  Collateral:");
         for (const ct of market.collateralTokens) {
           console.log(
-            `    ${ct.token.symbol} - LTV: ${formatRate(ct.ltv)} | Liq: ${formatRate(ct.liquidationThreshold)} | Supply APY: ${formatRate(ct.supplyRate)}`,
+            `    ${ct.token.symbol} - Max LTV: ${formatRate(ct.maxLtv)} | Liq: ${formatRate(ct.liquidationThreshold)} | Supply APY: ${formatRate(ct.supplyRate)}`,
           );
         }
       }
@@ -1028,7 +1216,9 @@ async function executeActionFlow(
   const markets = await fetchAllMarkets(apiClient, integration.id, network);
 
   if (markets.length === 0) {
-    console.log("No markets available");
+    console.log(
+      `No markets available for ${integration.name} on ${network}. Returning to the menu.\n`,
+    );
     return;
   }
 
@@ -1050,7 +1240,7 @@ async function executeActionFlow(
   const market = selected.market;
   const args: ArgumentsDto = { marketId: market.id };
 
-  const collected = await promptFromSchema(actionDef.schema, ["marketId"]);
+  const collected = await promptFromSchema(actionDef.schema, ["marketId"], { market });
   Object.assign(args, collected);
 
   console.log("\nAction Summary:");
