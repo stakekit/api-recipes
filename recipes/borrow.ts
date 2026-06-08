@@ -774,20 +774,25 @@ function displayActionMetadata(metadata: ActionMetadataDto): void {
     `    Total Debt: ${formatUsd(metadata.predictedTotalDebtUsd)}`,
   );
 
-  if (metadata.originationFeeBps !== undefined || metadata.originationFeeAmount !== undefined) {
-    const parts: string[] = [];
-    if (metadata.originationFeeBps !== undefined) parts.push(`${metadata.originationFeeBps} bps`);
-    if (metadata.originationFeeAmount !== undefined) parts.push(metadata.originationFeeAmount);
-    console.log(`    Origination Fee: ${parts.join(" / ")}`);
-  }
+  // Always print the fee info the API returns — including when it's 0 (no fee wrapper
+  // configured) — so the configured rate is visible on every action, not silently omitted.
+  console.log("\n  Fees:");
+
+  const bps = (value?: number) => (value === undefined ? "not set" : `${value} bps`);
+  const amount = (value?: string, unit = "") =>
+    value === undefined ? "not set" : `${value}${unit}`;
+
+  // Supply fee (supply actions). The API sends feeBps/feeAmount = 0 when no supply wrapper
+  // is configured; non-zero once a LIVE fee config + wrapper is in place.
+  console.log(`    Supply Fee:        ${bps(metadata.feeBps)} (${amount(metadata.feeAmount, " raw")})`);
+
+  // Origination fee (borrow actions, when a borrow wrapper applies).
+  console.log(
+    `    Origination Fee:   ${bps(metadata.originationFeeBps)} (${amount(metadata.originationFeeAmount)})`,
+  );
+
   if (metadata.effectivePrincipalAmount !== undefined) {
     console.log(`    Effective Principal: ${metadata.effectivePrincipalAmount}`);
-  }
-  if (metadata.feeBps !== undefined || metadata.feeAmount !== undefined) {
-    const parts: string[] = [];
-    if (metadata.feeBps !== undefined) parts.push(`${metadata.feeBps} bps`);
-    if (metadata.feeAmount !== undefined) parts.push(`${metadata.feeAmount} raw`);
-    console.log(`    Supply Fee: ${parts.join(" / ")}`);
   }
 }
 
