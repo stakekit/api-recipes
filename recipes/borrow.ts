@@ -279,12 +279,17 @@ class BorrowApiClient {
     network?: string;
     limit?: number;
     offset?: number;
+    scope?: "enabled" | "all";
   }): Promise<PaginatedResponse<MarketDto>> {
     const query = new URLSearchParams();
     if (params?.integrationId) query.append("integrationId", params.integrationId);
     if (params?.network) query.append("network", params.network);
     if (params?.limit !== undefined) query.append("limit", params.limit.toString());
     if (params?.offset !== undefined) query.append("offset", params.offset.toString());
+    // The markets endpoint defaults to scope=enabled, which hides markets that
+    // aren't enabled for your project. The recipe is a dev tool, so we opt into
+    // the full list by default; action creation will still enforce enablement.
+    query.append("scope", params?.scope ?? "all");
 
     const queryString = query.toString();
     return this.makeRequest<PaginatedResponse<MarketDto>>(
