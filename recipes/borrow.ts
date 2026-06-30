@@ -10,6 +10,7 @@ import "cross-fetch/polyfill";
 import * as dotenv from "dotenv";
 import Enquirer from "enquirer";
 import { HDNodeWallet } from "ethers";
+import { broadcastSignedTx, getProvider, isApiBroadcastFailure } from "../utils/evm-nonce";
 import { request } from "../utils/requests";
 
 dotenv.config();
@@ -403,12 +404,14 @@ async function promptFromSchema(
 
     let message = prop.label || name;
     if (prop.description) message += ` - ${prop.description}`;
-    if (!isRequired) message += " (optional)";
+    if (!isRequired) message += " (optional, press Enter to skip)";
 
-    if (!isRequired && prop.default !== undefined) {
-      result[name] = prop.default;
-      continue;
-    }
+    // Surface defaults/placeholders as hints instead of pre-filling them, so
+    // optional fields stay truly opt-in.
+    const hints: string[] = [];
+    if (prop.placeholder) hints.push(`example: ${prop.placeholder}`);
+    if (prop.default !== undefined) hints.push(`default: ${prop.default}`);
+    if (hints.length) message += ` [${hints.join(", ")}]`;
 
     if (prop.enum || prop.options) {
       const baseChoices = prop.options || (prop.enum as string[]);
@@ -419,18 +422,31 @@ async function promptFromSchema(
         name: "value",
         message,
         choices,
-        initial: prop.default,
+        initial: isRequired ? prop.default : skipChoice,
       } as any);
       if (!isRequired && response.value === skipChoice) continue;
       result[name] = response.value;
     } else if (type === "boolean") {
-      const response: any = await Enquirer.prompt({
-        type: "confirm",
-        name: "value",
-        message,
-        initial: prop.default as boolean,
-      } as any);
-      result[name] = response.value;
+      if (isRequired) {
+        const response: any = await Enquirer.prompt({
+          type: "confirm",
+          name: "value",
+          message,
+          initial: prop.default as boolean,
+        } as any);
+        result[name] = response.value;
+      } else {
+        const skipChoice = "<skip>";
+        const response: any = await Enquirer.prompt({
+          type: "select",
+          name: "value",
+          message,
+          choices: [skipChoice, "true", "false"],
+          initial: skipChoice,
+        } as any);
+        if (response.value === skipChoice) continue;
+        result[name] = response.value === "true";
+      }
     } else if (type === "object" && prop.properties) {
       console.log(`\n${prop.label || name}:`);
       result[name] = await promptFromSchema(prop as ArgumentSchemaDto, []);
@@ -439,10 +455,12 @@ async function promptFromSchema(
         type: "input",
         name: "value",
         message: `${message} (comma-separated or JSON array)`,
-        initial: prop.default ? JSON.stringify(prop.default) : "",
+        initial: isRequired && prop.default ? JSON.stringify(prop.default) : "",
       } as any);
 
-      if (response.value) {
+      if (!response.value) {
+        if (!isRequired) continue;
+      } else {
         try {
           result[name] = response.value.includes("[")
             ? JSON.parse(response.value)
@@ -456,7 +474,7 @@ async function promptFromSchema(
         type: "input",
         name: "value",
         message,
-        initial: (prop.placeholder || prop.default) as string,
+        initial: isRequired ? ((prop.placeholder || prop.default) as string) : undefined,
         validate: (input: string) => {
           if (!isRequired && input === "") return true;
           if (isRequired && input === "") return `${prop.label || name} is required`;
@@ -475,6 +493,18 @@ async function promptFromSchema(
             return `Must be at least ${prop.minLength} characters`;
           }
 
+          if (prop.pattern && !new RegExp(prop.pattern).test(input)) {
+            return `Must match pattern ${prop.pattern}`;
+          }
+
+          // Catch obvious "wrong field" mistakes (e.g. typing an amount into
+          // tokenAddress) when the schema doesn't declare a pattern.
+          if (!prop.pattern && /address(es)?$/i.test(name) && type !== "array") {
+            if (!/^0x[a-fA-F0-9]{40}$/.test(input)) {
+              return "Must be a valid Ethereum address (0x + 40 hex chars)";
+            }
+          }
+
           return true;
         },
       } as any);
@@ -491,7 +521,11 @@ async function promptFromSchema(
   return result;
 }
 
-async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promise<string> {
+async function signTransaction(
+  tx: TransactionDto,
+  wallet: HDNodeWallet,
+  evmPayloadOverride?: Record<string, any>,
+): Promise<string> {
   if (!tx.signablePayload) throw new Error("Nothing to sign");
 
   if (tx.signingFormat === SigningFormat.EIP712_TYPED_DATA) {
@@ -510,8 +544,108 @@ async function signTransaction(tx: TransactionDto, wallet: HDNodeWallet): Promis
   }
 
   const txData =
-    typeof tx.signablePayload === "string" ? JSON.parse(tx.signablePayload) : tx.signablePayload;
+    evmPayloadOverride ??
+    (typeof tx.signablePayload === "string"
+      ? JSON.parse(tx.signablePayload)
+      : { ...tx.signablePayload });
   return wallet.signTransaction(txData);
+}
+
+function isZeroish(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v === "number") return v === 0;
+  if (typeof v === "string") {
+    if (v === "") return true;
+    try {
+      return BigInt(v) === 0n;
+    } catch {
+      return false;
+    }
+  }
+  if (typeof v === "bigint") return v === 0n;
+  return false;
+}
+
+function parseIntegerField(v: unknown): number | undefined {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && v !== "") {
+    return Number.parseInt(v, v.startsWith("0x") ? 16 : 10);
+  }
+  return undefined;
+}
+
+/**
+ * Build a complete, signable EVM payload by enriching the API-supplied
+ * `signablePayload` with any missing critical fields. The Yield.xyz API
+ * sometimes hands back payloads with `chainId`, `nonce`, or fee fields left
+ * unset/zero; signing those produces transactions the chain immediately
+ * rejects ("transaction type not supported", "max fee per gas less than
+ * block base fee", etc.). We patch them up here using `tx.chainId` and live
+ * chain data so the signed tx is always broadcast-ready.
+ */
+async function enrichEvmPayload(
+  tx: TransactionDto,
+  walletAddress: string,
+): Promise<Record<string, any>> {
+  const payload: Record<string, any> =
+    typeof tx.signablePayload === "string"
+      ? JSON.parse(tx.signablePayload as string)
+      : { ...(tx.signablePayload as Record<string, any>) };
+
+  if (isZeroish(payload.chainId)) {
+    const outerChainId = Number(tx.chainId);
+    if (Number.isFinite(outerChainId) && outerChainId > 0) {
+      console.log(`  Setting chainId ${outerChainId} (from tx.chainId)`);
+      payload.chainId = outerChainId;
+    }
+  }
+
+  const provider = getProvider(tx.network);
+  if (!provider) return payload;
+
+  try {
+    const freshNonce = await provider.getTransactionCount(walletAddress, "pending");
+    const apiNonce = parseIntegerField(payload.nonce);
+    if (apiNonce === undefined) {
+      console.log(`  Setting nonce ${freshNonce} (from chain)`);
+    } else if (apiNonce !== freshNonce) {
+      console.log(`  Overriding nonce ${apiNonce} → ${freshNonce} (from chain)`);
+    }
+    payload.nonce = freshNonce;
+  } catch (err: any) {
+    console.warn(`  Could not refresh nonce: ${err?.message || err}`);
+  }
+
+  const hasLegacyFee = !isZeroish(payload.gasPrice);
+  const hasEip1559Fees =
+    !isZeroish(payload.maxFeePerGas) && !isZeroish(payload.maxPriorityFeePerGas);
+  if (!hasLegacyFee && !hasEip1559Fees) {
+    try {
+      const feeData = await provider.getFeeData();
+      const apiType = parseIntegerField(payload.type);
+      const canUseEip1559 = feeData.maxFeePerGas !== null && feeData.maxPriorityFeePerGas !== null;
+      const wantEip1559 = apiType === 2 || (apiType === undefined && canUseEip1559);
+      if (wantEip1559 && feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+        payload.maxFeePerGas = feeData.maxFeePerGas.toString();
+        payload.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas.toString();
+        payload.type = 2;
+        payload.gasPrice = undefined;
+        console.log(
+          `  Setting fees (from chain): maxFeePerGas=${feeData.maxFeePerGas}, maxPriorityFeePerGas=${feeData.maxPriorityFeePerGas}`,
+        );
+      } else if (feeData.gasPrice) {
+        payload.gasPrice = feeData.gasPrice.toString();
+        payload.type = 0;
+        payload.maxFeePerGas = undefined;
+        payload.maxPriorityFeePerGas = undefined;
+        console.log(`  Setting fees (from chain): gasPrice=${feeData.gasPrice}`);
+      }
+    } catch (err: any) {
+      console.warn(`  Could not fetch fee data: ${err?.message || err}`);
+    }
+  }
+
+  return payload;
 }
 
 async function processTransactions(
@@ -545,11 +679,35 @@ async function processTransactions(
     }
 
     try {
+      const enrichedPayload =
+        tx.signingFormat === undefined || tx.signingFormat === SigningFormat.EVM_TRANSACTION
+          ? await enrichEvmPayload(tx, wallet.address)
+          : undefined;
+
       console.log("Signing...");
-      const signature = await signTransaction(tx, wallet);
+      const signature = await signTransaction(tx, wallet, enrichedPayload);
 
       console.log("Submitting...");
-      const result = await apiClient.submitTransaction(tx.id, { signedPayload: signature });
+      let result: SubmitTransactionResponseDto;
+      try {
+        result = await apiClient.submitTransaction(tx.id, { signedPayload: signature });
+      } catch (submitErr: any) {
+        // The backend's `/submit` calls an upstream RPC to broadcast. When
+        // that upstream broadcast fails (e.g. a flaky public RPC), it
+        // surfaces as a 5xx with an empty "Transaction broadcast failed: "
+        // message. Recover by broadcasting via our own RPC and registering
+        // the resulting hash with the API.
+        if (!isApiBroadcastFailure(submitErr)) throw submitErr;
+        console.warn(`  API broadcast failed: ${submitErr.message}`);
+        console.warn("  Falling back to local broadcast via configured RPC...");
+        const localHash = await broadcastSignedTx(signature, tx.network).catch((err) => {
+          console.error(`  Local broadcast also failed: ${err?.message || err}`);
+          return undefined;
+        });
+        if (!localHash) throw submitErr;
+        console.log(`  Locally broadcast: ${localHash}`);
+        result = await apiClient.submitTransaction(tx.id, { transactionHash: localHash });
+      }
 
       if (result.transactionHash) console.log(`  Hash: ${result.transactionHash}`);
       if (result.link) console.log(`  Explorer: ${result.link}`);
