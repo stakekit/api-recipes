@@ -219,6 +219,10 @@ class YieldsApiClient {
     );
   }
 
+  async getYield(yieldId: string): Promise<YieldOpportunity> {
+    return this.makeRequest<YieldOpportunity>("GET", `/v1/yields/${encodeURIComponent(yieldId)}`);
+  }
+
   async getBalances(yieldId: string, address: string): Promise<YieldBalancesDto> {
     return this.makeRequest<YieldBalancesDto>("POST", `/v1/yields/${yieldId}/balances`, {
       address,
@@ -540,6 +544,14 @@ async function main() {
     const address = wallet.address;
     console.log(`Address: ${address}\n`);
 
+    const quickYieldId = process.env.YIELD_ID;
+    if (quickYieldId) {
+      console.log(`Quick-test mode: fetching yield ${quickYieldId}...\n`);
+      const yieldInfo = await apiClient.getYield(quickYieldId);
+      await executeAction(apiClient, yieldInfo, address, wallet, "enter");
+      return;
+    }
+
     await selectYieldFlow(apiClient, address, wallet);
   } catch (e: any) {
     console.error("Fatal Error:", e?.message || e);
@@ -602,49 +614,57 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
   console.log(`\n${"═".repeat(70)}`);
   console.log(`${yieldInfo.metadata?.name || yieldInfo.id}`);
   console.log(`${"═".repeat(70)}\n`);
-  
+
   if (yieldInfo.metadata?.description) {
     console.log(`${yieldInfo.metadata.description}\n`);
   }
-  
+
   console.log(`${"─".repeat(70)}`);
   console.log("Key Metrics");
   console.log(`${"─".repeat(70)}`);
-  
+
   console.log(`  APY: ${formatApy(yieldInfo.rewardRate?.total || 0)}`);
-  
+
   if (yieldInfo.statistics?.tvlUsd) {
     console.log(`  TVL: ${formatUsd(yieldInfo.statistics.tvlUsd)}`);
   }
-  
+
   console.log(`  Type: ${yieldInfo.mechanics?.type || "N/A"}\n`);
-  
+
   console.log(`${"─".repeat(70)}`);
   console.log("Input Token");
   console.log(`${"─".repeat(70)}`);
   if (yieldInfo.inputTokens && yieldInfo.inputTokens.length > 0) {
     for (const token of yieldInfo.inputTokens) {
-      console.log(`  ${token.symbol}${token.name ? ` - ${token.name}` : ""}${token.address ? ` (${token.address})` : ""}`);
+      console.log(
+        `  ${token.symbol}${token.name ? ` - ${token.name}` : ""}${token.address ? ` (${token.address})` : ""}`,
+      );
     }
   } else if (yieldInfo.token) {
-    console.log(`  ${yieldInfo.token.symbol}${yieldInfo.token.name ? ` - ${yieldInfo.token.name}` : ""}${yieldInfo.token.address ? ` (${yieldInfo.token.address})` : ""}`);
+    console.log(
+      `  ${yieldInfo.token.symbol}${yieldInfo.token.name ? ` - ${yieldInfo.token.name}` : ""}${yieldInfo.token.address ? ` (${yieldInfo.token.address})` : ""}`,
+    );
   } else {
     console.log("  N/A");
   }
-  
+
   if (yieldInfo.outputToken && yieldInfo.outputToken.symbol !== yieldInfo.token?.symbol) {
     console.log(`${"─".repeat(70)}`);
     console.log("Output Token");
     console.log(`${"─".repeat(70)}`);
-    console.log(`  ${yieldInfo.outputToken.symbol}${yieldInfo.outputToken.name ? ` - ${yieldInfo.outputToken.name}` : ""}${yieldInfo.outputToken.address ? ` (${yieldInfo.outputToken.address})` : ""}\n`);
+    console.log(
+      `  ${yieldInfo.outputToken.symbol}${yieldInfo.outputToken.name ? ` - ${yieldInfo.outputToken.name}` : ""}${yieldInfo.outputToken.address ? ` (${yieldInfo.outputToken.address})` : ""}\n`,
+    );
   }
-  
+
   if (yieldInfo.rewardRate?.components && yieldInfo.rewardRate.components.length > 0) {
     console.log(`${"─".repeat(70)}`);
     console.log("Reward Rate Breakdown");
     console.log(`${"─".repeat(70)}`);
     for (const component of yieldInfo.rewardRate.components) {
-      console.log(`  ${formatApy(component.rate)} ${component.rateType} from ${component.yieldSource}`);
+      console.log(
+        `  ${formatApy(component.rate)} ${component.rateType} from ${component.yieldSource}`,
+      );
       if (component.description) {
         console.log(`    └─ ${component.description}`);
       }
@@ -653,7 +673,7 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
       }
     }
   }
-  
+
   if (yieldInfo.mechanics?.entryLimits) {
     console.log(`${"─".repeat(70)}`);
     console.log("Entry Limits");
@@ -662,13 +682,15 @@ function displayYieldInfo(yieldInfo: YieldOpportunity): void {
     console.log(`  Minimum: ${limits.minimum}`);
     console.log(`  Maximum: ${limits.maximum || "No limit"}\n`);
   }
-  
+
   console.log(`${"─".repeat(70)}`);
   console.log("Network & Provider");
   console.log(`${"─".repeat(70)}`);
-  console.log(`  Network: ${yieldInfo.network}${yieldInfo.chainId ? ` (Chain ID: ${yieldInfo.chainId})` : ""}`);
+  console.log(
+    `  Network: ${yieldInfo.network}${yieldInfo.chainId ? ` (Chain ID: ${yieldInfo.chainId})` : ""}`,
+  );
   console.log(`  Provider: ${yieldInfo.providerId}\n`);
-  
+
   console.log(`${"─".repeat(70)}`);
   console.log("Available Actions");
   console.log(`${"─".repeat(70)}`);
@@ -683,7 +705,7 @@ async function showYieldMenu(
   wallet: HDNodeWallet,
 ): Promise<void> {
   let metadataShown = false;
-  
+
   while (true) {
     if (!metadataShown) {
       displayYieldInfo(yieldInfo);
@@ -697,7 +719,7 @@ async function showYieldMenu(
     try {
       const balanceData = await apiClient.getBalances(yieldInfo.id, address);
       displayBalances(balanceData, yieldInfo);
-      
+
       for (const balance of balanceData.balances) {
         for (const pendingAction of balance.pendingActions) {
           hasPendingActions = true;
@@ -789,8 +811,13 @@ async function executeAction(
   manageActionArguments?: { balance: BalanceDto; pendingAction: PendingAction },
 ): Promise<void> {
   const isManage = type === "manage";
-  const actionLabel = type === "enter" ? "Enter" : type === "exit" ? "Exit" : manageActionArguments?.pendingAction.type || "Manage";
-  
+  const actionLabel =
+    type === "enter"
+      ? "Enter"
+      : type === "exit"
+        ? "Exit"
+        : manageActionArguments?.pendingAction.type || "Manage";
+
   console.log(`\n${isManage ? actionLabel : `${actionLabel} Yield`}\n`);
 
   const args: any = {};
@@ -814,10 +841,22 @@ async function executeAction(
     args.amount = amount;
   }
 
+  if (type === "enter" && args.maxApproval === undefined) {
+    const { maxApproval }: any = await Enquirer.prompt({
+      type: "confirm",
+      name: "maxApproval",
+      message: "Use max (unlimited) token approval?",
+      initial: false,
+    });
+    args.maxApproval = maxApproval;
+  }
+
   console.log("\nAction Summary:");
   console.log(`  Yield: ${yieldInfo.metadata?.name || yieldInfo.id}`);
   if (manageActionArguments?.balance) {
-    console.log(`  Balance: ${manageActionArguments.balance.type} - ${manageActionArguments.balance.amount} ${manageActionArguments.balance.token.symbol}`);
+    console.log(
+      `  Balance: ${manageActionArguments.balance.type} - ${manageActionArguments.balance.amount} ${manageActionArguments.balance.token.symbol}`,
+    );
   }
   console.log(`  Action: ${actionLabel}`);
   for (const [key, value] of Object.entries(args)) {
@@ -856,7 +895,7 @@ async function executeAction(
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     await signAndSubmitTransactions(actionResponse.transactions, wallet, apiClient);
-    
+
     const successMessage = isManage
       ? "\nAction completed successfully!\n"
       : `\nYield ${type === "enter" ? "entered" : "exited"} successfully!\n`;
@@ -886,7 +925,9 @@ async function viewValidators(
 
       console.log(`\n${"═".repeat(70)}`);
       console.log(`${yieldInfo.metadata?.name || yieldInfo.id} - Validators`);
-      console.log(`Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(response.total / limit)} (${response.total} total)`);
+      console.log(
+        `Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(response.total / limit)} (${response.total} total)`,
+      );
       console.log(`${"═".repeat(70)}\n`);
 
       for (const validator of response.items) {
@@ -898,10 +939,14 @@ async function viewValidators(
           console.log(`  Status: ${validator.status}`);
         }
         if (validator.rewardRate) {
-          console.log(`  APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`);
+          console.log(
+            `  APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`,
+          );
           if (validator.rewardRate.components && validator.rewardRate.components.length > 0) {
             for (const component of validator.rewardRate.components) {
-              console.log(`    - ${formatApy(component.rate)} ${component.rateType} from ${component.yieldSource}`);
+              console.log(
+                `    - ${formatApy(component.rate)} ${component.rateType} from ${component.yieldSource}`,
+              );
             }
           }
         }
@@ -985,14 +1030,16 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
       console.log(`  Balance Address: ${balance.address}`);
     }
     console.log(`  Earning: ${balance.isEarning ? "Yes" : "No"}`);
-    
+
     if (balance.validator) {
       console.log(`  Validator: ${balance.validator.name || balance.validator.address}`);
       if (balance.validator.address) {
         console.log(`    Address: ${balance.validator.address}`);
       }
       if (balance.validator.rewardRate) {
-        console.log(`    APY: ${formatApy(balance.validator.rewardRate.total)} ${balance.validator.rewardRate.rateType}`);
+        console.log(
+          `    APY: ${formatApy(balance.validator.rewardRate.total)} ${balance.validator.rewardRate.rateType}`,
+        );
       }
       if (balance.validator.commission !== undefined) {
         console.log(`    Commission: ${formatPercent(balance.validator.commission)}`);
@@ -1001,20 +1048,22 @@ function displayBalances(balanceData: YieldBalancesDto, yieldInfo: YieldOpportun
         console.log(`    Status: ${balance.validator.status}`);
       }
     }
-    
+
     if (balance.validators && balance.validators.length > 0) {
       console.log(`  Validators (${balance.validators.length}):`);
       for (const validator of balance.validators) {
         console.log(`    - ${validator.name || validator.address}`);
         if (validator.rewardRate) {
-          console.log(`      APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`);
+          console.log(
+            `      APY: ${formatApy(validator.rewardRate.total)} ${validator.rewardRate.rateType}`,
+          );
         }
         if (validator.commission !== undefined) {
           console.log(`      Commission: ${formatPercent(validator.commission)}`);
         }
       }
     }
-    
+
     if (balance.pendingActions.length > 0) {
       console.log("  Available Actions:");
       for (const action of balance.pendingActions) {
