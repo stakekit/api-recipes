@@ -8,12 +8,14 @@ Yield.xyz provides unified APIs for decentralized finance:
 
 - **Yields API** - Engage with yield opportunities across multiple networks and protocols
 - **Perps API** - Trade perpetual futures with leverage across multiple providers
+- **Trade API** - Trade perps, spot and prediction markets on Hyperliquid
 - **Borrow API** - Supply collateral and borrow against it across lending protocols
 
 These recipes demonstrate:
 
 - Discovering and entering yield opportunities
 - Trading perpetual futures with full position management
+- Trading perps, spot and prediction markets through the Trade API
 - Supplying, borrowing, repaying, and managing collateral on lending protocols
 - Managing active positions and executing pending actions
 - Signing and submitting transactions with ethers.js
@@ -38,6 +40,7 @@ cp .env.example .env
    - `MNEMONIC`: Your wallet's seed phrase (12 or 24 words)
    - `YIELDS_API_KEY`: Your Yield.xyz API key (for yields/staking)
    - `PERPS_API_KEY`: Your Yield.xyz API key (for perpetuals trading)
+   - `TRADE_API_KEY`: Your Yield.xyz API key (for the Trade API)
    - `BORROW_API_KEY`: Your Yield.xyz API key (for lending/borrowing)
 4. Install dependencies:
 
@@ -114,6 +117,30 @@ pnpm perps
 - Hyperliquid
 - More providers coming soon
 
+### Trade
+
+Trade perps, spot and prediction markets through the Trade API:
+
+```bash
+pnpm trade
+```
+
+**Features:**
+- Choose a provider, including testnets
+- Browse markets by type (perps, stock perps, spot, prediction), operator and search
+- Read one portfolio per provider: balances, positions, orders and setup steps
+- Run a row's pending actions, or a market's own actions
+- Simulate every action, print the summary and fees, and complete required steps first
+- Sign EIP-712 typed data and EIP-1559 transactions locally, one transaction at a time
+- Review recent actions and fills
+
+**Supported:**
+- Hyperliquid and Hyperliquid testnet (perps, including XYZ stock perps, spot, and prediction markets)
+
+Lighter orders are signed with a trading key from Lighter's signer. Build it once with `pnpm build:lighter-signer` (Go 1.23). The recipe generates the key on the first **Approve a trading key**, saves the private part in `.env` (`LIGHTER_TRADING_KEY` or `LIGHTER_TESTNET_TRADING_KEY`), and fills the public key into the form. Approving a new key replaces the previous one.
+
+The recipe targets the staging API (`TRADE_API_URL`, default `https://trade.stg.yield.xyz`).
+
 ## How It Works
 
 All recipes follow an interactive, schema-driven approach:
@@ -131,6 +158,7 @@ The recipes automatically adapt to API changes using schema-driven UI generation
 For complete API documentation and integration guides:
 - **Borrow API**: [docs.yield.xyz](https://docs.yield.xyz/reference) - Lending and borrowing
 - **Perps API**: [docs.yield.xyz](https://docs.yield.xyz/reference) - Perpetual futures trading
+- **Trade API**: [trade.stg.yield.xyz/docs](https://trade.stg.yield.xyz/docs) - Perps, spot and prediction markets
 - **Yields API**: [docs.yield.xyz](https://docs.yield.xyz/reference) - Staking and yield opportunities
 
 ## Development

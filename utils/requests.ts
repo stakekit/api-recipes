@@ -33,6 +33,23 @@ function redactSensitive(obj: unknown): unknown {
   return result;
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+
+  constructor(status: number, body: unknown, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export interface RequestOptions {
+  /** Throw ApiError without logging the raw error body. */
+  silentError?: boolean;
+}
+
 /**
  * Generic HTTP request helper with logging
  */
@@ -42,6 +59,7 @@ export async function request<T>(
   method: string,
   path: string,
   body?: any,
+  options?: RequestOptions,
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
 
@@ -55,33 +73,47 @@ export async function request<T>(
     "Content-Type": "application/json",
   };
 
-  const options: RequestInit = {
+  const init: RequestInit = {
     method,
     headers,
   };
 
   if (body) {
-    options.body = JSON.stringify(body);
+    init.body = JSON.stringify(body);
   }
 
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, init);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("API Error Response:", errorText);
-
+      let parsed: unknown = errorText;
       try {
-        const errorJson = JSON.parse(errorText);
-        throw new Error(`${JSON.stringify(errorJson)} (Status: ${response.status})`);
-      } catch (parseError) {
-        throw new Error(`${errorText} (Status: ${response.status})`);
+        parsed = JSON.parse(errorText);
+      } catch {
+        parsed = errorText;
       }
+
+      if (options?.silentError) {
+        const message =
+          parsed &&
+          typeof parsed === "object" &&
+          "message" in parsed &&
+          typeof parsed.message === "string"
+            ? parsed.message
+            : `Request failed (${response.status})`;
+        throw new ApiError(response.status, parsed, message);
+      }
+
+      console.error("API Error Response:", errorText);
+      throw new Error(`${errorText} (Status: ${response.status})`);
     }
 
     return response.json();
   } catch (error) {
-    console.error(`${method} request to ${path} failed:`, error);
+    if (!options?.silentError) {
+      console.error(`${method} request to ${path} failed:`, error);
+    }
     throw error;
   }
 }
