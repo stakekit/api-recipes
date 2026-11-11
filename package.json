@@ -9,6 +9,8 @@
     "build": "tsc",
     "borrow": "ts-node recipes/borrow.ts",
     "perps": "ts-node recipes/perps.ts",
+    "trade": "ts-node recipes/trade.ts",
+    "build:lighter-signer": "bash scripts/build-lighter-signer.sh",
     "yields": "ts-node recipes/yields.ts",
     "lint": "biome lint .",
     "format": "biome format --write .",
